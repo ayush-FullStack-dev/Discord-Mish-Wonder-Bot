@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { errorLog } from "../../logs/printLogs.js";
+import { get } from "node:http";
 
 function getRequiredEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -20,6 +21,7 @@ export const env = {
   yonderApiBaseUrl: getRequiredEnv("YONDER_API_BASE_URL"),
   mongodbUri: getRequiredEnv("MONGODB_URI"),
   yonderApiKey: getRequiredEnv("YONDER_API_KEY"),
+  encryptionKey: getRequiredEnv("ENCRYPTION_KEY"),
   clientId: getRequiredEnv("CLIENT_ID"),
   guildId: getRequiredEnv("GUILD_ID"),
 } as const;
