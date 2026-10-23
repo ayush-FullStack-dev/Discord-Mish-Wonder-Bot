@@ -1,0 +1,36 @@
+{
+  "name": "discord-mish-wonder-bot",
+  "version": "1.0.0",
+  "description": "",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ayush-FullStack-dev/Discord-Mish-Wonder-Bot.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "bugs": {
+    "url": "https://github.com/ayush-FullStack-dev/Discord-Mish-Wonder-Bot/issues"
+  },
+  "homepage": "https://github.com/ayush-FullStack-dev/Discord-Mish-Wonder-Bot#readme",
+  "dependencies": {
+    "chalk": "^6.0.1",
+    "discord.js": "^14.27.0",
+    "dotenv": "^18.0.9",
+    "figlet": "^1.12.0",
+    "mongoose": "^9.11.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
