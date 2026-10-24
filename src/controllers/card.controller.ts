@@ -4,6 +4,11 @@ import { Card } from "../models/card.model.js";
 import { encrypt } from "../utils/encryption.js";
 import { MessageFlags } from "discord.js";
 import { validateCardReference } from "../utils/validate-card.js";
+import {
+  attemptInteractionResponse,
+  handleInteractionError,
+  UserFacingError,
+} from "../utils/error-handler.js";
 
 type CardReference = {
   cardnumber: string;
@@ -21,7 +26,11 @@ export async function handleAddSingleCard(
   try {
     if (!(await requireAdmin(interaction))) return;
 
-    await interaction.deferReply({ ephemeral: true });
+    await attemptInteractionResponse(interaction, () =>
+      interaction.deferReply({
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
 
     const cardReference = interaction.options.getString("card-info", true);
 
@@ -38,22 +47,11 @@ export async function handleAddSingleCard(
       zipcode: zipcode,
     });
 
-    await interaction.editReply({ content: "Card added successfully." });
+    await attemptInteractionResponse(interaction, () =>
+      interaction.editReply({ content: "Card added successfully." }),
+    );
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "An unexpected error occurred.";
-
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({
-        content: message,
-        flags: MessageFlags.Ephemeral,
-      });
-    } else {
-      await interaction.reply({
-        content: message,
-        flags: MessageFlags.Ephemeral,
-      });
-    }
+    await handleInteractionError(interaction, error);
   }
 }
 
@@ -63,24 +61,25 @@ export async function handleAddBulkCard(
   try {
     if (!(await requireAdmin(interaction))) return;
 
-    await interaction.deferReply({
-      flags: MessageFlags.Ephemeral,
-    });
+    await attemptInteractionResponse(interaction, () =>
+      interaction.deferReply({
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
 
-    console.log(interaction.options.getAttachment("file", true));
     const file = interaction.options.getAttachment("file", true);
 
     if (
       !file.name.toLowerCase().endsWith(".txt") ||
-      file.contentType !== "text/plain"
+      !file.contentType?.toLowerCase().startsWith("text/plain")
     ) {
-      throw new Error("Please upload a .txt file.");
+      throw new UserFacingError("Please upload a .txt file.");
     }
 
     const response = await fetch(file.url);
 
     if (!response.ok) {
-      throw new Error("Failed to read the uploaded file.");
+      throw new UserFacingError("Failed to read the uploaded file.");
     }
 
     const content = await response.text();
@@ -91,7 +90,7 @@ export async function handleAddBulkCard(
       .filter(Boolean);
 
     if (lines.length === 0) {
-      throw new Error("The uploaded file is empty.");
+      throw new UserFacingError("The uploaded file is empty.");
     }
 
     const cards: CardReference[] = [];
@@ -99,45 +98,51 @@ export async function handleAddBulkCard(
 
     for (const line of lines) {
       try {
-        const card = validateCardReference(line);
-        cards.push(card);
+        const fields = line.split("|").map((field) => field.trim());
+
+        if (fields.length < 7) {
+          skipped++;
+          continue;
+        }
+
+        const record = validateCardReference(fields.slice(0, 7).join("|"));
+        cards.push(record);
       } catch {
         skipped++;
       }
     }
 
-    console.log(cards);
     if (cards.length === 0) {
-      await interaction.editReply({
-        content: `No valid records found. Skipped: ${skipped}.`,
-      });
+      await attemptInteractionResponse(interaction, () =>
+        interaction.editReply({
+          content: `No valid records found. Skipped: ${skipped}.`,
+        }),
+      );
       return;
     }
 
-    await interaction.editReply({
-      content: [
-        "File validation completed.",
-        `Valid records: ${cards.length}`,
-        `Skipped records: ${skipped}`,
-      ].join("\n"),
-    });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "An unexpected error occurred.";
+    await Card.insertMany(
+      cards.map(
+        ({ cardnumber, cvv, expdate, address, city, state, zipcode }) => ({
+          encryptedCardNumber: encrypt(cardnumber.trim()),
+          encryptedCardCvv: encrypt(cvv.trim()),
+          expiryDate: expdate,
+          location: address,
+          city: city,
+          state,
+          zipcode: zipcode,
+        }),
+      ),
+    );
 
-    try {
-      if (interaction.deferred || interaction.replied) {
-        await interaction.editReply({
-          content: message,
-        });
-      } else {
-        await interaction.reply({
-          content: message,
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-    } catch (replyError) {
-      console.error("Failed to respond to interaction:", replyError);
-    }
+    await attemptInteractionResponse(interaction, () =>
+      interaction.editReply({
+        content: "All cards have been added successfully.",
+      }),
+    );
+
+    return;
+  } catch (error) {
+    await handleInteractionError(interaction, error);
   }
 }

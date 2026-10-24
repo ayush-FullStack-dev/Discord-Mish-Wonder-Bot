@@ -1,3 +1,5 @@
+import { UserFacingError } from "./error-handler.js";
+
 export interface CardReference {
   cardnumber: string;
   cvv: string;
@@ -17,7 +19,7 @@ export function validateCardReference(
   const match = cardReference.match(cardReferenceRegex);
 
   if (!match) {
-    throw new Error(
+    throw new UserFacingError(
       "Invalid format. Expected: cardnumber|cvv|expdate|address|city|state|zipcode",
     );
   }
@@ -34,7 +36,7 @@ export function validateCardReference(
     !state ||
     !zipcode
   ) {
-    throw new Error("All fields are required.");
+    throw new UserFacingError("All fields are required.");
   }
 
   const validations = {
@@ -48,31 +50,31 @@ export function validateCardReference(
   };
 
   if (!validations.cardnumber.test(cardnumber)) {
-    throw new Error("Invalid card number format.");
+    throw new UserFacingError("Invalid card number format.");
   }
 
   if (!validations.cvv.test(cvv)) {
-    throw new Error("Invalid CVV format.");
+    throw new UserFacingError("Invalid CVV format.");
   }
 
   if (!validations.expdate.test(expdate)) {
-    throw new Error("Invalid expiry date format. Use MM/YY or MM/YYYY.");
+    throw new UserFacingError("Invalid expiry date format. Use MM/YY or MM/YYYY.");
   }
 
   if (!validations.address.test(address.trim())) {
-    throw new Error("Invalid address.");
+    throw new UserFacingError("Invalid address.");
   }
 
   if (!validations.city.test(city.trim())) {
-    throw new Error("Invalid city.");
+    throw new UserFacingError("Invalid city.");
   }
 
   if (!validations.state.test(state.trim())) {
-    throw new Error("Invalid state.");
+    throw new UserFacingError("Invalid state.");
   }
 
   if (!validations.zipcode.test(zipcode.trim())) {
-    throw new Error("Invalid ZIP/postal code.");
+    throw new UserFacingError("Invalid ZIP/postal code.");
   }
 
   return {

@@ -8,46 +8,6 @@ interface CreateOrderInput {
   username: string;
 }
 
-type cardInfo = {
-  number: string;
-  cvv: string;
-  expiry_month: string;
-  expiry_year: string;
-  name: string;
-  zipcode: number;
-};
-
-// export async function addCard(card: cardInfo) {
-//   console.log(card.number.length)
-//   try {
-//     const response = await axios.post(
-//       `${env.yonderApiBaseUrl}/cards`,
-//       {
-//         card: `${card.number}/${card.expiry_month}/${card.expiry_year}/${card.cvv}/${card.zipcode}`
-//       },
-//       {
-//         headers: {
-//           Authorization: `Bearer ${env.yonderApiKey}`,
-//           "Content-Type": "application/json",
-//         },
-//       },
-//     );
-
-//     console.log(response.data);
-//   } catch (error) {
-//     console.log(error?.response?.data);
-//   }
-// }
-
-// addCard({
-//   number: "5555555555554444",
-//   cvv: "123",
-//   expiry_month: "12",
-//   expiry_year: "2027",
-//   name: "John Doe",
-//   zipcode: 123456
-// });
-
 export async function getSettings() {
   try {
     const response = await axios.get(`${env.yonderApiBaseUrl}/settings`, {
@@ -56,7 +16,7 @@ export async function getSettings() {
       },
     });
 
-   console.log(response.data);
+    console.log(response.data);
   } catch (error) {
     if (axios.isAxiosError(error)) {
       console.error("Settings error:", error.response?.data);
@@ -66,13 +26,14 @@ export async function getSettings() {
   }
 }
 
-export async function updateSettings(
-  settings: Record<string, string>,
-) {
+export async function accountConfigure() {
   try {
-    const response = await axios.patch(
-      `${env.yonderApiBaseUrl}/settings`,
-      settings,
+    const response = await axios.post(
+      `${env.yonderApiBaseUrl}/accounts`,
+      {
+        count: 1,
+        chain: "1",
+      },
       {
         headers: {
           Authorization: `Bearer ${env.yonderApiKey}`,
@@ -84,33 +45,7 @@ export async function updateSettings(
     return response.data;
   } catch (error: unknown) {
     if (axios.isAxiosError(error)) {
-      console.error(
-        "Settings error:",
-        error.response?.data ?? error.message,
-      );
-    }
-
-    throw error;
-  }
-}
-
-export async function accountConfigure() {
-  try {
-    const response = await axios.post(
-      `${env.yonderApiBaseUrl}/accounts`,
-      {},
-      {
-        headers: {
-          Authorization: `Bearer ${env.yonderApiKey}`,
-          "Content-Type": "application/json",
-        },
-      },
-    );
-
-    console.log(response.data);
-  } catch (error) {
-    if (axios.isAxiosError(error)) {
-      console.log(error?.response?.data);
+      throw new Error(error.response?.data?.error ?? error.message);
     }
 
     throw error;
@@ -125,20 +60,18 @@ export async function getJobStatus(jobId: string) {
       },
     });
 
-    console.log(response.data);
     return response.data;
-  } catch (error) {
+  } catch (error: unknown) {
     if (axios.isAxiosError(error)) {
-      console.error("Job status error:", error.response?.data);
+      throw new Error(error.response?.data?.error ?? error.message);
     }
 
     throw error;
   }
 }
 
-// await getJobStatus("job_033624e35e52");
+// await getJobStatus("job_8887073a1888");
 // accountConfigure();
-// await getSettings()
 
 export async function createOrder(input: CreateOrderInput) {
   try {
@@ -158,10 +91,6 @@ export async function createOrder(input: CreateOrderInput) {
     const data = response.data;
 
     console.log(data);
-    // 2. Get the actual price from the API response.
-    // 3. Save the checkout/order record in MongoDB.
-    // 4. Return the checkout details to the controller.
-
     console.log("Creating checkout for:", input.discordUserId);
 
     return {

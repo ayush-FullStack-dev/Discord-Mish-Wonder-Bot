@@ -1,7 +1,12 @@
-import { ChatInputCommandInteraction, Client } from "discord.js";
+import {
+  ChatInputCommandInteraction,
+  Client,
+  MessageFlags,
+} from "discord.js";
 import { env } from "../config/env.js";
 import { createShopPanel } from "../ui/shop-panel.js";
 import { requireAdmin } from "../middleware.js";
+import { attemptInteractionResponse } from "../utils/error-handler.js";
 
 export async function postShopPanel(
   interaction: ChatInputCommandInteraction,
@@ -9,16 +14,24 @@ export async function postShopPanel(
 ) {
   if (!(await requireAdmin(interaction))) return;
 
-  await interaction.deferReply({ ephemeral: true });
+  await attemptInteractionResponse(interaction, () =>
+    interaction.deferReply({
+      flags: MessageFlags.Ephemeral,
+    }),
+  );
 
   const channel = await client.channels.fetch(env.shopChannelId);
 
   if (!channel?.isTextBased() || !("send" in channel)) {
-    await interaction.editReply("Shop channel not found or unsupported.");
+    await attemptInteractionResponse(interaction, () =>
+      interaction.editReply("Shop channel not found or unsupported."),
+    );
     return;
   }
 
   await channel.send(createShopPanel());
 
-  await interaction.editReply("Shop panel posted successfully.");
+  await attemptInteractionResponse(interaction, () =>
+    interaction.editReply("Shop panel posted successfully."),
+  );
 }

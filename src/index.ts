@@ -1,14 +1,27 @@
 import { Client, GatewayIntentBits } from "discord.js";
 import { env } from "./config/env.js";
-import { errorLog, info, printASCII, success } from "../logs/printLogs.js";
+import { info, printASCII, success } from "../logs/printLogs.js";
 import { registerInteractionHandler } from "./handlers/interaction-handler.js";
 import { connectDatabase } from "./config/database.js";
+import mongoose from "mongoose";
+import {
+  logApplicationError,
+  registerGlobalErrorHandlers,
+} from "./utils/error-handler.js";
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
 
 registerInteractionHandler(client);
+
+const handleFatalError = registerGlobalErrorHandlers(async () => {
+  try {
+    client.destroy();
+  } finally {
+    await mongoose.disconnect();
+  }
+});
 
 client.once("clientReady", (readyClient) => {
   success(`Logged in as ${readyClient.user.tag}`);
@@ -18,7 +31,7 @@ client.once("clientReady", (readyClient) => {
 });
 
 client.on("error", (error) => {
-  errorLog(`Discord client error: ${error}`);
+  logApplicationError("Discord client error", error);
   process.exitCode = 1;
 });
 
@@ -29,6 +42,5 @@ async function main() {
 }
 
 main().catch((error: unknown) => {
-  errorLog(`Application startup failed: ${error}`);
-  process.exitCode = 1;
+  handleFatalError("Application startup failed", error);
 });
