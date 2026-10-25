@@ -5,8 +5,6 @@ export async function connectDatabase(): Promise<void> {
   await mongoose.connect(env.mongodbUri, {
     dbName: "mish-wonder",
   });
-
-  console.log("Default database connected: mish-wonder");
 }
 
 export function getBalanceDatabase() {

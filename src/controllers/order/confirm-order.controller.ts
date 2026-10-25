@@ -13,6 +13,10 @@ import { handleInteractionError } from "../../utils/error-handler.js";
 
 export async function handleConfirmOrder(interaction: ButtonInteraction) {
   try {
+    await interaction.deferReply({
+     flags: MessageFlags.Ephemeral,
+    });
+
     const checkoutId = interaction.customId.split(":")[2];
     const discordUserId = interaction.user.id;
 

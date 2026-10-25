@@ -1,4 +1,4 @@
-import { GuildMember, type ButtonInteraction } from "discord.js";
+import { GuildMember, MessageFlags, type ButtonInteraction } from "discord.js";
 import { Order } from "../../models/order.model.js";
 import { cancelOrder } from "../../services/order.service.js";
 import { sendError } from "../../ui/utils/sendError.js";
@@ -25,6 +25,10 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
     });
 
   try {
+    await interaction.deferReply({
+       flags: MessageFlags.Ephemeral,
+    });
+
     const checkoutId = interaction.customId.split(":")[2];
     const discordUserId = interaction.user.id;
 
