@@ -6,7 +6,7 @@ import {
 } from "discord.js";
 
 import { Order } from "../../models/order.model.js";
-import { confirmOrder } from "../../services/order.service.js";
+import { confirmOrder, editOrder } from "../../services/order.service.js";
 import { createConfirmedOrderPanel } from "../../ui/order/createConfirmedOrderPanel.js";
 import { sendError } from "../../ui/utils/sendError.js";
 import { handleInteractionError } from "../../utils/error-handler.js";
@@ -14,7 +14,7 @@ import { handleInteractionError } from "../../utils/error-handler.js";
 export async function handleConfirmOrder(interaction: ButtonInteraction) {
   try {
     await interaction.deferReply({
-     flags: MessageFlags.Ephemeral,
+      flags: MessageFlags.Ephemeral,
     });
 
     const checkoutId = interaction.customId.split(":")[2];
@@ -29,23 +29,27 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       return;
     }
 
-    const order = await Order.findOne({
-      checkoutId,
-      discordUserId,
-      status: "pending",
-    });
+    // const order = await Order.findOne({
+    //   checkoutId,
+    //   discordUserId,
+    //   status: "pending",
+    // });
 
-    if (!order) {
-      await sendError(interaction, {
-        title: "Order Not Found",
-        description:
-          "No pending order was found. It may already be confirmed, cancelled, or expired.",
-        footer: "Only pending orders can be confirmed.",
-      });
-      return;
-    }
+    // if (!order) {
+    //   await sendError(interaction, {
+    //     title: "Order Not Found",
+    //     description:
+    //       "No pending order was found. It may already be confirmed, cancelled, or expired.",
+    //     footer: "Only pending orders can be confirmed.",
+    //   });
+    //   return;
+    // }
 
     const result = await confirmOrder(checkoutId);
+
+    // if (result.data.code === "FORTER_DECLINE" && result.data.retryable) {
+    //   await editOrder(checkoutId, { cartcode: "pool" });
+    // }
 
     if (!result.ok) {
       await sendError(interaction, {
@@ -58,24 +62,24 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     const data = result.data;
 
-    try {
-      await Order.findOneAndUpdate(
-        {
-          _id: order._id,
-          discordUserId,
-          status: "pending",
-        },
-        {
-          $set: {
-            status: "confirmed",
-            orderId: data.order_id,
-            trackingUrl: data.tracking,
-            total: data.price.total,
-            expiresAt: null,
-          },
-        },
-      );
-    } catch (error) {}
+    // try {
+    //   await Order.findOneAndUpdate(
+    //     {
+    //       _id: order._id,
+    //       discordUserId,
+    //       status: "pending",
+    //     },
+    //     {
+    //       $set: {
+    //         status: "confirmed",
+    //         orderId: data.order_id,
+    //         trackingUrl:  data.tracking,
+    //         total: data.price.total,
+    //         expiresAt: null,
+    //       },
+    //     },
+    //   );
+    // } catch (error) {}
 
     const panel = createConfirmedOrderPanel({ order: data });
 

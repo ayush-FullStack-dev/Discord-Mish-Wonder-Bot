@@ -114,32 +114,32 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         "Please don't close this interaction while your account is being created.",
     });
 
-    const account = await accountConfigure({ count: 1, chain: lastChain });
+    // const account = await accountConfigure({ count: 1, chain: lastChain });
 
-    if (!account.ok) {
-      throw new Error("Failed to create account Please try again later");
-    }
+    // if (!account.ok) {
+    //   throw new Error("Failed to create account Please try again later");
+    // }
 
-    if (account.state === "queued") {
-      let accountStatus = await getJobStatus(account.job);
+    // if (account.state === "queued") {
+    //   let accountStatus = await getJobStatus(account.job);
 
-      if (!accountStatus.ok && !accountStatus.retryable) {
-        throw new Error(
-          "Failed to fetch account status Please try again later",
-        );
-      }
+    //   if (!accountStatus.ok && !accountStatus.retryable) {
+    //     throw new Error(
+    //       "Failed to fetch account status Please try again later",
+    //     );
+    //   }
 
-      while (!accountStatus.done) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
-        accountStatus = await getJobStatus(account.job);
+    //   while (!accountStatus.done) {
+    //     await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
+    //     accountStatus = await getJobStatus(account.job);
 
-        if (!accountStatus.ok) {
-          throw new Error(
-            "Failed to fetch account status Please try again later",
-          );
-        }
-      }
-    }
+    //     if (!accountStatus.ok) {
+    //       throw new Error(
+    //         "Failed to fetch account status Please try again later",
+    //       );
+    //     }
+    //   }
+    // }
 
     try {
       await UserChain.findOneAndUpdate(

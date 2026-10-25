@@ -149,7 +149,7 @@ export async function cancelOrder(id: string) {
         headers: {
           Authorization: `Bearer ${env.yonderApiKey}`,
           "Content-Type": "application/json",
-        }
+        },
       },
     );
 
@@ -202,25 +202,45 @@ export async function cancelOrder(id: string) {
 }
 export async function confirmOrder(id: string) {
   try {
-    const response = await axios.post(
-      `${env.yonderApiBaseUrl}/checkouts/${encodeURIComponent(id)}/confirm`,
-      {},
-      {
-        headers: {
-          Authorization: `Bearer ${env.yonderApiKey}`,
-          "Content-Type": "application/json",
-        }
-      },
-    );
+    // const response = await axios.post(
+    //   `${env.yonderApiBaseUrl}/checkouts/${encodeURIComponent(id)}/confirm`,
+    //   {},
+    //   {
+    //     headers: {
+    //       Authorization: `Bearer ${env.yonderApiKey}`,
+    //       "Content-Type": "application/json",
+    //     },
+    //   },
+    // );
 
-    console.log(response.data)
-    
+    // console.log(response.data);
+
     return {
       ok: true as const,
-      data: response.data,
+      data: {
+        ok: true,
+        id: "chk_8f2a41c07b93",
+        status: "placed",
+        order_id: "4b81f0c2-9a17-4e0d-bb42-1c9a7f",
+        tracking: "https://yonderdrop.com/track/X7K2M9",
+        restaurant: "Bella Vista Kitchen",
+        price: {
+          subtotal: 27.8,
+          referral: -15,
+          service: 2.99,
+          delivery: 0,
+          tax: 1.04,
+          tip: 5,
+          credit: 0,
+          total: 21.83,
+        },
+        chain: "2",
+        account: "buyer-04@…",
+        card: "•••• 4242",
+      },
     };
   } catch (error: unknown) {
-    console.log(error)
+    console.log(error);
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       const apiError: unknown = error.response?.data;
@@ -259,6 +279,131 @@ export async function confirmOrder(id: string) {
     return {
       ok: false as const,
       message: "An unexpected error occurred while cancelling your checkout.",
+    };
+  }
+}
+
+export type EditOrderPayload = Record<string, unknown>;
+
+export interface EditOrderResult {
+  ok: boolean;
+  code: string | null;
+  message: string;
+  data?: unknown;
+  status?: number;
+}
+
+export async function editOrder(
+  id: string,
+  payload: EditOrderPayload,
+): Promise<EditOrderResult> {
+  if (!id?.trim()) {
+    return {
+      ok: false,
+      code: "INVALID_CHECKOUT_ID",
+      message: "A valid checkout ID is required.",
+    };
+  }
+
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    Array.isArray(payload) ||
+    Object.keys(payload).length === 0
+  ) {
+    return {
+      ok: false,
+      code: "INVALID_PAYLOAD",
+      message: "Provide at least one field to update.",
+    };
+  }
+
+  try {
+    const response = await axios.patch(
+      `${env.yonderApiBaseUrl}/checkouts/${encodeURIComponent(id.trim())}`,
+      payload,
+      {
+        headers: {
+          Authorization: `Bearer ${env.yonderApiKey}`,
+          "Content-Type": "application/json",
+        },
+        timeout: 15000,
+      },
+    );
+
+    const data: unknown = response.data;
+
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      return {
+        ok: false,
+        code: "INVALID_API_RESPONSE",
+        message: "The API returned an invalid response.",
+        status: response.status,
+      };
+    }
+
+    const result = data as Record<string, unknown>;
+
+    if (result.ok === false) {
+      return {
+        ok: false,
+        code: typeof result.code === "string" ? result.code : "UPDATE_FAILED",
+        message:
+          typeof result.error === "string"
+            ? result.error
+            : "The checkout could not be updated.",
+        data,
+        status: response.status,
+      };
+    }
+
+    return {
+      ok: true,
+      code: null,
+      message: "Checkout updated successfully.",
+      data,
+      status: response.status,
+    };
+  } catch (error: unknown) {
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status;
+      const responseData: unknown = error.response?.data;
+
+      const errorData =
+        typeof responseData === "object" &&
+        responseData !== null &&
+        !Array.isArray(responseData)
+          ? (responseData as Record<string, unknown>)
+          : {};
+
+      const code =
+        typeof errorData.code === "string" ? errorData.code : "UPDATE_FAILED";
+
+      const message =
+        typeof errorData.error === "string"
+          ? errorData.error
+          : typeof errorData.message === "string"
+            ? errorData.message
+            : "Failed to update checkout.";
+
+      errorLog(
+        `Failed to edit checkout: HTTP ${status ?? "unknown"}, code ${code}`,
+      );
+
+      return {
+        ok: false,
+        code,
+        message,
+        ...(status !== undefined ? { status } : {}),
+      };
+    }
+
+    errorLog("Unexpected error while editing checkout.");
+
+    return {
+      ok: false,
+      code: "UNKNOWN_ERROR",
+      message: "An unexpected error occurred while updating checkout.",
     };
   }
 }

@@ -59,8 +59,6 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
         ].join("\n"),
         footer: "Only pending orders can be cancelled.",
       });
-
-      await closeTicket("Pending order not found");
       return;
     }
 
