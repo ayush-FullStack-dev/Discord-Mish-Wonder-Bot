@@ -1,0 +1,59 @@
+import {
+  ContainerBuilder,
+  TextDisplayBuilder,
+  SeparatorBuilder,
+  SeparatorSpacingSize,
+  MessageFlags,
+  type RepliableInteraction,
+} from "discord.js";
+
+type ErrorOptions = {
+  title?: string;
+  description: string;
+  footer?: string;
+};
+
+export async function sendError(
+  interaction: RepliableInteraction,
+  options: ErrorOptions,
+) {
+  const container = new ContainerBuilder()
+    .setAccentColor(0xed4245)
+    .addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(
+        `## <:alert:1563650830505349241> ${options.title ?? "Something Went Wrong"}`,
+      ),
+    )
+    .addSeparatorComponents(
+      new SeparatorBuilder()
+        .setDivider(true)
+        .setSpacing(SeparatorSpacingSize.Small),
+    )
+    .addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(options.description),
+    )
+    .addSeparatorComponents(
+      new SeparatorBuilder()
+        .setDivider(true)
+        .setSpacing(SeparatorSpacingSize.Small),
+    )
+    .addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(
+        `-# ${options.footer ?? "Please try again later."}`,
+      ),
+    );
+
+  if (interaction.deferred || interaction.replied) {
+    return interaction.editReply({
+      content: "",
+      embeds: [],
+      components: [container],
+      flags: MessageFlags.IsComponentsV2,
+    });
+  }
+
+  return interaction.reply({
+    components: [container],
+    flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+  });
+}

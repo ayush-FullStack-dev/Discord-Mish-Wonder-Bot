@@ -10,9 +10,7 @@ export interface CardReference {
   zipcode: string;
 }
 
-export function validateCardReference(
-  cardReference: string,
-): CardReference {
+export function validateCardReference(cardReference: string): CardReference {
   const cardReferenceRegex =
     /^([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)$/;
 
@@ -20,12 +18,11 @@ export function validateCardReference(
 
   if (!match) {
     throw new UserFacingError(
-      "Invalid format. Expected: cardnumber|cvv|expdate|address|city|state|zipcode",
+      "Invalid format. Expected: cardnumber|expdate|cvv|address|city|state|zipcode",
     );
   }
 
-  const [, cardnumber, cvv, expdate, address, city, state, zipcode] =
-    match;
+  const [, cardnumber, expdate, cvv, address, city, state, zipcode] = match;
 
   if (
     !cardnumber ||
@@ -40,7 +37,7 @@ export function validateCardReference(
   }
 
   const validations = {
-    cardnumber: /^\d{12,19}$/,
+    cardnumber: /^(?:\d{4})+$/,
     cvv: /^\d{3,4}$/,
     expdate: /^(0[1-9]|1[0-2])\/(\d{2}|\d{4})$/,
     address: /^.{1,100}$/,
@@ -53,12 +50,14 @@ export function validateCardReference(
     throw new UserFacingError("Invalid card number format.");
   }
 
-  if (!validations.cvv.test(cvv)) {
-    throw new UserFacingError("Invalid CVV format.");
+  if (!validations.expdate.test(expdate)) {
+    throw new UserFacingError(
+      "Invalid expiry date format. Use MM/YY or MM/YYYY.",
+    );
   }
 
-  if (!validations.expdate.test(expdate)) {
-    throw new UserFacingError("Invalid expiry date format. Use MM/YY or MM/YYYY.");
+  if (!validations.cvv.test(cvv)) {
+    throw new UserFacingError("Invalid CVV format.");
   }
 
   if (!validations.address.test(address.trim())) {
@@ -79,8 +78,8 @@ export function validateCardReference(
 
   return {
     cardnumber,
-    cvv,
     expdate,
+    cvv,
     address: address.trim(),
     city: city.trim(),
     state: state.trim(),

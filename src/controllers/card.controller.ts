@@ -1,7 +1,5 @@
 import type { ChatInputCommandInteraction } from "discord.js";
 import { requireAdmin } from "../middleware.js";
-import { Card } from "../models/card.model.js";
-import { encrypt } from "../utils/encryption.js";
 import { MessageFlags } from "discord.js";
 import { validateCardReference } from "../utils/validate-card.js";
 import {
@@ -9,6 +7,7 @@ import {
   handleInteractionError,
   UserFacingError,
 } from "../utils/error-handler.js";
+import { addCard } from "../services/card.service.js";
 
 type CardReference = {
   cardnumber: string;
@@ -34,18 +33,21 @@ export async function handleAddSingleCard(
 
     const cardReference = interaction.options.getString("card-info", true);
 
-    const { cardnumber, cvv, expdate, address, city, state, zipcode } =
+    const { cardnumber, cvv, expdate, zipcode } =
       validateCardReference(cardReference);
 
-    await Card.create({
-      encryptedCardNumber: encrypt(cardnumber.trim()),
-      encryptedCardCvv: encrypt(cvv.trim()),
-      expiryDate: expdate,
-      location: address,
-      city: city,
-      state,
-      zipcode: zipcode,
-    });
+    try {
+      await addCard({
+        cards: [`${cardnumber},${expdate},${cvv},${zipcode}`],
+      });
+    } catch (error) {
+      await attemptInteractionResponse(interaction, () =>
+        interaction.editReply({
+          content: "Failed to add card. Please try again.",
+        }),
+      );
+      return;
+    }
 
     await attemptInteractionResponse(interaction, () =>
       interaction.editReply({ content: "Card added successfully." }),
@@ -94,6 +96,7 @@ export async function handleAddBulkCard(
     }
 
     const cards: CardReference[] = [];
+    const cardsInfo: string[] = [];
     let skipped = 0;
 
     for (const line of lines) {
@@ -106,10 +109,33 @@ export async function handleAddBulkCard(
         }
 
         const record = validateCardReference(fields.slice(0, 7).join("|"));
+
+        cardsInfo.push(
+          `${record.cardnumber},${record.expdate},${record.cvv},${record.zipcode}`,
+        );
+
         cards.push(record);
       } catch {
         skipped++;
       }
+    }
+
+    const requestedCount = cardsInfo.length;
+
+    try {
+      const data = await addCard({
+        cards: cardsInfo,
+      });
+
+      skipped += data.rejected.length;
+    } catch (error) {
+      await attemptInteractionResponse(interaction, () =>
+        interaction.editReply({
+          content: "Failed to add cards. Please try again.",
+        }),
+      );
+
+      return;
     }
 
     if (cards.length === 0) {
@@ -121,23 +147,12 @@ export async function handleAddBulkCard(
       return;
     }
 
-    await Card.insertMany(
-      cards.map(
-        ({ cardnumber, cvv, expdate, address, city, state, zipcode }) => ({
-          encryptedCardNumber: encrypt(cardnumber.trim()),
-          encryptedCardCvv: encrypt(cvv.trim()),
-          expiryDate: expdate,
-          location: address,
-          city: city,
-          state,
-          zipcode: zipcode,
-        }),
-      ),
-    );
-
     await attemptInteractionResponse(interaction, () =>
       interaction.editReply({
-        content: "All cards have been added successfully.",
+        content:
+          requestedCount > skipped
+            ? `${skipped === 0 ? "All" : requestedCount - skipped} cards have been added successfully.`
+            : "No cards added.",
       }),
     );
 

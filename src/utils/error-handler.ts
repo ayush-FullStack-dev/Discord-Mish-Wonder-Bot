@@ -4,6 +4,7 @@ import {
   type RepliableInteraction,
 } from "discord.js";
 import { errorLog } from "../../logs/printLogs.js";
+import { sendError } from "../ui/utils/sendError.js";
 
 const defaultInteractionErrorMessage =
   "Something went wrong. Please try again.";
@@ -104,23 +105,13 @@ export async function handleInteractionError(
       return;
     }
 
-    const message = isUserFacingError(error)
-      ? error.message
-      : responseMessage;
+    const message = isUserFacingError(error) ? error.message : responseMessage;
 
-    if (interaction.deferred) {
-      await attemptInteractionResponse(interaction, () =>
-        interaction.editReply(message),
-      );
-      return;
-    }
-
-    await attemptInteractionResponse(interaction, () =>
-      interaction.reply({
-        content: message,
-        flags: MessageFlags.Ephemeral,
-      }),
-    );
+    await sendError(interaction, {
+      title: "Something Went Wrong",
+      description: message,
+      footer: "Please try again later. Contact support if the issue persists.",
+    });
   } catch (responseError) {
     if (!hasInvalidInteractionCode(responseError)) {
       logApplicationError(
