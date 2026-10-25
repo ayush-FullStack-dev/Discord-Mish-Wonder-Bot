@@ -1,17 +1,23 @@
 import type { ModalSubmitInteraction } from "discord.js";
-import { MessageFlags } from "discord.js";
-import { createOrder } from "../services/order.service.js";
+import { GuildMember, MessageFlags } from "discord.js";
+import { createOrder } from "../../services/order.service.js";
 import {
   attemptInteractionResponse,
   handleInteractionError,
-} from "../utils/error-handler.js";
-import { sendError } from "../ui/utils/sendError.js";
-import { sendLoading } from "../ui/utils/sendLoading.js";
-import { sendSuccess } from "../ui/utils/sendSuccess.js";
-import { createOrderTicket } from "../helpers/createOrderTicket.js";
-import { createCheckoutPanel } from "../ui/order/createCheckoutPanel.js";
-import { accountConfigure, getJobStatus } from "../services/account.service.js";
-import { UserChain } from "../models/userChain.model.js";
+} from "../../utils/error-handler.js";
+import { sendError } from "../../ui/utils/sendError.js";
+import { sendLoading } from "../../ui/utils/sendLoading.js";
+import { sendSuccess } from "../../ui/utils/sendSuccess.js";
+import { createOrderTicket } from "../../helpers/createOrderTicket.js";
+import { createCheckoutPanel } from "../../ui/order/createCheckoutPanel.js";
+import type { CheckoutData } from "../../ui/order/createCheckoutPanel.js";
+import { UserChain } from "../../models/userChain.model.js";
+import { Order } from "../../models/order.model.js";
+import { formatExpiryDate } from "../../utils/util.js";
+import {
+  accountConfigure,
+  getJobStatus,
+} from "../../services/account.service.js";
 
 const ORDER_ERRORS: Record<
   string,
@@ -77,6 +83,25 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
 
     let lastChain = oldChain?.lastChain || "1";
 
+    const pendingOrder = await Order.countDocuments({
+      discordUserId: interaction.user.id,
+      status: "pending",
+    });
+
+    if (pendingOrder >= 2) {
+      await sendError(interaction, {
+        title: "Pending Order Limit Reached",
+        description: [
+          `You already have ${pendingOrder} pending orders.`,
+          "",
+          "Please confirm or cancel your existing orders before creating another one.",
+        ].join("\n"),
+        footer: `You can have a maximum of 2 pending orders at a time.`,
+      });
+
+      return;
+    }
+
     await sendLoading(interaction, {
       title: "Creating Your Account",
       description: [
@@ -98,25 +123,31 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     if (account.state === "queued") {
       let accountStatus = await getJobStatus(account.job);
 
-      if (!accountStatus.ok) {
-        throw new Error("Failed to fetch account status Please try again later");
+      if (!accountStatus.ok && !accountStatus.retryable) {
+        throw new Error(
+          "Failed to fetch account status Please try again later",
+        );
       }
 
       while (!accountStatus.done) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 3000));
-
+        await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
         accountStatus = await getJobStatus(account.job);
 
         if (!accountStatus.ok) {
-          throw new Error("Failed to fetch account status Please try again later");
+          throw new Error(
+            "Failed to fetch account status Please try again later",
+          );
         }
       }
     }
 
-    await UserChain.create({
-      discordId: interaction.user.id,
-      lastChain,
-    });
+    try {
+      await UserChain.findOneAndUpdate(
+        { discordId: interaction.user.id },
+        { $set: { lastChain } },
+        { upsert: true,  setDefaultsOnInsert: true },
+      );
+    } catch {}
 
     await sendLoading(interaction, {
       title: "Preparing Checkout",
@@ -128,24 +159,42 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       footer: "No order is placed until you confirm.",
     });
 
-    // const result = await createOrder({
-    //   cartCode,
-    //   discordUserId: interaction.user.id,
-    //   username: interaction.user.username,
-    // });
+    const result = await createOrder({
+      cartCode,
+    });
 
-    // if (result.code) {
-    //   await sendError(
-    //     interaction,
-    //     ORDER_ERRORS[result.code] ?? {
-    //       title: "Checkout Failed",
-    //       description:
-    //         "We couldn't prepare your checkout.\nPlease try again later.",
-    //       footer: "Contact support if the issue persists.",
-    //     },
-    //   );
-    //   return;
-    // }
+    if (result.code !== null && result.code !== undefined) {
+      await sendError(
+        interaction,
+        ORDER_ERRORS[result.code] ?? {
+          title: "Checkout Failed",
+          description: result.message,
+          footer: "Contact support if the issue persists.",
+        },
+      );
+
+      return;
+    }
+
+    if (!("data" in result)) {
+      throw new Error("Checkout response did not contain data.");
+    }
+
+    const data = result.data;
+
+    const displayName =
+      interaction.member instanceof GuildMember
+        ? interaction.member.displayName
+        : (interaction.user.globalName ?? interaction.user.username);
+
+    await Order.create({
+      name: displayName,
+      discordUserId: interaction.user.id,
+      checkoutId: data.id,
+      orderId: data.order_id,
+      total: data.price.total,
+      expiresAt: formatExpiryDate(data.expires_in),
+    });
 
     const ticket = await createOrderTicket(interaction);
 
@@ -153,43 +202,38 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       content: `<@${interaction.user.id}>`,
     });
 
+    const checkoutData: CheckoutData = {
+      id: data.id,
+      status: data.status,
+      restaurant: data.restaurant,
+      items: data.items.map((item) => ({
+        name: item.name,
+        quantity: item.quantity,
+        subtotal: item.subtotal,
+      })),
+      price: {
+        subtotal: data.price.subtotal,
+        referral: data.price.referral,
+        service: data.price.service,
+        delivery: data.price.delivery,
+        tax: data.price.tax,
+        tip: data.price.tip,
+        credit: data.price.credit,
+        total: data.price.total,
+      },
+      fulfillment: data.fulfillment,
+      dropoff: data.dropoff,
+      address: data.address,
+      referral_code: data.referral_code,
+      referral_applied: data.referral_applied,
+      account: data.account,
+      card: data.card,
+      expires_in: data.expires_in,
+    };
+
     await ticket.send(
       createCheckoutPanel({
-        checkout: {
-          id: "chk_8f2a41c07b93",
-          status: "pending",
-          restaurant: "Bella Vista Kitchen",
-          items: [
-            {
-              name: "Burrito Bowl",
-              quantity: 1,
-              subtotal: "$20.80",
-            },
-            {
-              name: "Horchata",
-              quantity: 2,
-              subtotal: "$7.00",
-            },
-          ],
-          price: {
-            subtotal: 27.8,
-            referral: -15,
-            service: 2.99,
-            delivery: 0,
-            tax: 1.04,
-            tip: 3,
-            credit: 0,
-            total: 19.83,
-          },
-          fulfillment: "DELIVERY",
-          dropoff: "MEET_AT_DOOR",
-          address: "742 Example Ave, Springfield, IL, NY",
-          referral_code: "REFCODE1234",
-          referral_applied: true,
-          account: "buyer-04@…",
-          card: "•••• 4242",
-          expires_in: 900,
-        },
+        checkout: checkoutData,
         userId: interaction.user.id,
       }),
     );

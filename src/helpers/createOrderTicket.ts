@@ -30,7 +30,6 @@ export async function createOrderTicket(interaction: ModalSubmitInteraction) {
     name: channelName,
     type: ChannelType.GuildText,
     parent: env.orderTicketCategoryId,
-
     permissionOverwrites: [
       {
         id: guild.roles.everyone.id,

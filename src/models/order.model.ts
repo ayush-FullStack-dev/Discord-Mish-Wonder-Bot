@@ -1,4 +1,4 @@
-import { Schema, model, models } from "mongoose";
+import { Schema, model } from "mongoose";
 
 const orderSchema = new Schema(
   {
@@ -8,7 +8,7 @@ const orderSchema = new Schema(
       index: true,
     },
 
-    username: {
+    name: {
       type: String,
       required: true,
     },
@@ -37,6 +37,12 @@ const orderSchema = new Schema(
       index: true,
     },
 
+    expiresAt: {
+      type: Date,
+      default: null,
+      index: { expires: 0 },
+    },
+
     trackingUrl: {
       type: String,
       default: null,
@@ -49,4 +55,4 @@ const orderSchema = new Schema(
 
 orderSchema.index({ createdAt: -1 });
 
-export const Order = models.Order || model("Order", orderSchema);
+export const Order = model("Order", orderSchema);

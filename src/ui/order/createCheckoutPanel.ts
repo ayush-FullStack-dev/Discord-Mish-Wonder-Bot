@@ -66,20 +66,6 @@ function readable(value?: string | null): string {
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
 }
-
-function formatExpiry(seconds?: number): string {
-  if (seconds == null || !Number.isFinite(seconds)) {
-    return "Check expiry before confirming";
-  }
-
-  const minutes = Math.floor(Math.max(0, seconds) / 60);
-  const remainingSeconds = Math.max(0, seconds) % 60;
-
-  return minutes > 0
-    ? `${minutes}m ${remainingSeconds}s`
-    : `${remainingSeconds}s`;
-}
-
 export function createCheckoutPanel({
   checkout,
   userId,
@@ -98,7 +84,12 @@ export function createCheckoutPanel({
 
   const pricing = [
     `Subtotal: ${money(price.subtotal)}`,
-    `discount: ${money(price.referral)}`,
+    `Discount: ${money(price.referral)}`,
+    `Service Fee: ${money(price.service)}`,
+    `Delivery Fee: ${money(price.delivery)}`,
+    `Tax: ${money(price.tax)}`,
+    `Tip: ${money(price.tip)}`,
+    "",
     `### Total: ${money(price.total)}`,
   ].join("\n");
 

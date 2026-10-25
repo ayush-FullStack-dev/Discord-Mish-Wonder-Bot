@@ -49,6 +49,3 @@ export async function getJobStatus(jobId: string) {
     throw error;
   }
 }
-
-// await getJobStatus("job_8887073a1888");
-// accountConfigure();
