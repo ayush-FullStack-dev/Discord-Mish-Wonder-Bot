@@ -18,13 +18,19 @@ export async function createOrderTicket(interaction: ModalSubmitInteraction) {
       ? interaction.member.displayName
       : (interaction.user.globalName ?? interaction.user.username);
 
-  const ticket = await guild.channels.create({
-    name: `order-${displayName}`
+  const channelName =
+    `order-${displayName}`
       .toLowerCase()
       .replace(/[^a-z0-9-]/g, "-")
-      .slice(0, 90),
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 90) || `order-${interaction.user.id}`;
+
+  const ticket = await guild.channels.create({
+    name: channelName,
     type: ChannelType.GuildText,
     parent: env.orderTicketCategoryId,
+
     permissionOverwrites: [
       {
         id: guild.roles.everyone.id,
@@ -36,6 +42,8 @@ export async function createOrderTicket(interaction: ModalSubmitInteraction) {
           PermissionFlagsBits.ViewChannel,
           PermissionFlagsBits.SendMessages,
           PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.AttachFiles,
+          PermissionFlagsBits.EmbedLinks,
         ],
       },
       {
@@ -45,11 +53,10 @@ export async function createOrderTicket(interaction: ModalSubmitInteraction) {
           PermissionFlagsBits.SendMessages,
           PermissionFlagsBits.ReadMessageHistory,
           PermissionFlagsBits.ManageChannels,
+          PermissionFlagsBits.ManageMessages,
+          PermissionFlagsBits.AttachFiles,
+          PermissionFlagsBits.EmbedLinks,
         ],
-      },
-      {
-        id: guild.roles.everyone.id,
-        allow: [PermissionFlagsBits.Administrator],
       },
     ],
   });

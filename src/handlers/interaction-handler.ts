@@ -1,5 +1,5 @@
 import { Events, type Client } from "discord.js";
-import { createOrderModal } from "../ui/order-modal.js";
+import { createOrderModal } from "../ui/order/order-modal.js";
 import { handleOrderModal } from "../controllers/order.controller.js";
 import { postShopPanel } from "../controllers/post-shop.controller.js";
 import {

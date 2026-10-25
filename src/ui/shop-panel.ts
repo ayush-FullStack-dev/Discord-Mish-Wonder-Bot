@@ -45,7 +45,7 @@ export function createShopPanel(): MessageCreateOptions {
           "**03** <a:invoice_bill:1563845783034400939> **Price shown**",
           "Review the total before proceeding.",
           "",
-          "**04**  <a:order_placed:1563814138025742367>   **You confirm**",
+          "**04** <a:order_placed:1563814138025742367>   **You confirm**",
           "Approve the order before it is placed.",
           "",
           "**05** <a:Fooddeliverylocation:1563836870935318558> **Order placed**",
@@ -105,7 +105,6 @@ export function createShopPanel(): MessageCreateOptions {
 
   const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
     buyButton,
-    depositButton,
   );
 
   return {

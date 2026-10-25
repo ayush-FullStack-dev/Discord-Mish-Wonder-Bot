@@ -9,6 +9,9 @@ import { sendError } from "../ui/utils/sendError.js";
 import { sendLoading } from "../ui/utils/sendLoading.js";
 import { sendSuccess } from "../ui/utils/sendSuccess.js";
 import { createOrderTicket } from "../helpers/createOrderTicket.js";
+import { createCheckoutPanel } from "../ui/order/createCheckoutPanel.js";
+import { accountConfigure, getJobStatus } from "../services/account.service.js";
+import { UserChain } from "../models/userChain.model.js";
 
 const ORDER_ERRORS: Record<
   string,
@@ -67,16 +70,63 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
 
   try {
     const cartCode = interaction.fields.getTextInputValue("cart_code").trim();
+    const oldChain = await UserChain.findOne()
+      .sort({ updatedAt: -1 })
+      .select("lastChain -_id")
+      .lean();
 
-    // await sendLoading(interaction, {
-    //   title: "Preparing Checkout",
-    //   description: [
-    //     "**Checking Cart & Restaurant Pricing**",
-    //     "",
-    //     "Validating your cart and preparing checkout details...",
-    //   ].join("\n"),
-    //   footer: "No order is placed until you confirm.",
-    // });
+    let lastChain = oldChain?.lastChain || "1";
+
+    await sendLoading(interaction, {
+      title: "Creating Your Account",
+      description: [
+        "**Setting Up Your Account**",
+        "",
+        "Creating your account and securely processing your registration...",
+        "Please wait while we complete the setup.",
+      ].join("\n"),
+      footer:
+        "Please don't close this interaction while your account is being created.",
+    });
+
+    const account = await accountConfigure({ count: 1, chain: lastChain });
+
+    if (!account.ok) {
+      throw new Error("Failed to create account Please try again later");
+    }
+
+    if (account.state === "queued") {
+      let accountStatus = await getJobStatus(account.job);
+
+      if (!accountStatus.ok) {
+        throw new Error("Failed to fetch account status Please try again later");
+      }
+
+      while (!accountStatus.done) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 3000));
+
+        accountStatus = await getJobStatus(account.job);
+
+        if (!accountStatus.ok) {
+          throw new Error("Failed to fetch account status Please try again later");
+        }
+      }
+    }
+
+    await UserChain.create({
+      discordId: interaction.user.id,
+      lastChain,
+    });
+
+    await sendLoading(interaction, {
+      title: "Preparing Checkout",
+      description: [
+        "**Checking Cart & Restaurant Pricing**",
+        "",
+        "Validating your cart and preparing checkout details...",
+      ].join("\n"),
+      footer: "No order is placed until you confirm.",
+    });
 
     // const result = await createOrder({
     //   cartCode,
@@ -101,20 +151,48 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
 
     await ticket.send({
       content: `<@${interaction.user.id}>`,
-      embeds: [
-        {
-          title: "New Order",
-          description: [
-            "Welcome! Your order is being processed.",
-            "",
-            "Please review your order details below.",
-            "",
-            "Once confirmed, your order will be placed.",
-          ].join("\n"),
-          color: 0x57f288,
-        },
-      ],
     });
+
+    await ticket.send(
+      createCheckoutPanel({
+        checkout: {
+          id: "chk_8f2a41c07b93",
+          status: "pending",
+          restaurant: "Bella Vista Kitchen",
+          items: [
+            {
+              name: "Burrito Bowl",
+              quantity: 1,
+              subtotal: "$20.80",
+            },
+            {
+              name: "Horchata",
+              quantity: 2,
+              subtotal: "$7.00",
+            },
+          ],
+          price: {
+            subtotal: 27.8,
+            referral: -15,
+            service: 2.99,
+            delivery: 0,
+            tax: 1.04,
+            tip: 3,
+            credit: 0,
+            total: 19.83,
+          },
+          fulfillment: "DELIVERY",
+          dropoff: "MEET_AT_DOOR",
+          address: "742 Example Ave, Springfield, IL, NY",
+          referral_code: "REFCODE1234",
+          referral_applied: true,
+          account: "buyer-04@…",
+          card: "•••• 4242",
+          expires_in: 900,
+        },
+        userId: interaction.user.id,
+      }),
+    );
 
     await attemptInteractionResponse(interaction, () =>
       sendSuccess(interaction, {
@@ -123,7 +201,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         footer: "Your order stays private inside that ticket.",
       }),
     );
-
   } catch (error) {
     await handleInteractionError(
       interaction,
