@@ -370,7 +370,7 @@ export async function handleDeleteAllOrders(
 
     for (const ticket of tickets.values()) {
       try {
-        await ticket.delete(`All order tickets deleted by ${displayName} admin.`);
+        await ticket.delete(`All order tickets have been deleted by admin ${displayName}`);
         deleted++;
       } catch {
         failed++;
