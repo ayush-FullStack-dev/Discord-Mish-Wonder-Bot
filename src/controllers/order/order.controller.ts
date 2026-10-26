@@ -119,45 +119,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       return;
     }
 
-    await sendLoading(interaction, {
-      title: "Creating Your Account",
-      description: [
-        "**Setting Up Your Account**",
-        "",
-        "Creating your account and securely processing your registration...",
-        "Please wait while we complete the setup.",
-      ].join("\n"),
-      footer:
-        "Please don't close this interaction while your account is being created.",
-    });
-
-    const account = await accountConfigure({ count: 1, chain: lastChain });
-
-    if (!account.ok) {
-      throw new Error("Failed to create account Please try again later");
-    }
-
-    if (account.state === "queued") {
-      let accountStatus = await getJobStatus(account.job);
-
-      if (!accountStatus.ok && !accountStatus.retryable) {
-        throw new Error(
-          "Failed to fetch account status Please try again later",
-        );
-      }
-
-      while (!accountStatus.done) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
-        accountStatus = await getJobStatus(account.job);
-
-        if (!accountStatus.ok) {
-          throw new Error(
-            "Failed to fetch account status Please try again later",
-          );
-        }
-      }
-    }
-
     try {
       await UserChain.findOneAndUpdate(
         { discordId: interaction.user.id },
@@ -231,6 +192,58 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       }
     }
 
+    await sendLoading(interaction, {
+      title: "Creating Your Account",
+      description: [
+        "**Setting Up Your Account**",
+        "",
+        "Creating your account and securely processing your registration...",
+        "Please wait while we complete the setup.",
+      ].join("\n"),
+      footer:
+        "Please don't close this interaction while your account is being created.",
+    });
+
+    try {
+      const account = await accountConfigure({ count: 1, chain: lastChain });
+
+      if (!account.ok) {
+        throw new Error("Failed to create account Please try again later");
+      }
+
+      if (account.state === "queued") {
+        let accountStatus = await getJobStatus(account.job);
+
+        if (!accountStatus.ok && !accountStatus.retryable) {
+          throw new Error(
+            "Failed to fetch account status Please try again later",
+          );
+        }
+
+        while (!accountStatus.done) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
+          accountStatus = await getJobStatus(account.job);
+
+          if (!accountStatus.ok) {
+            throw new Error(
+              "Failed to fetch account status Please try again later",
+            );
+          }
+        }
+      }
+    } catch (error) {
+      await cancelOrder(data.id);
+
+      return sendError(interaction, {
+        title: "Account Creation Failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Failed to create your account. Please try again later.",
+        footer: "Your order has been cancelled. Please try again later.",
+      });
+    }
+
     const displayName =
       interaction.member instanceof GuildMember
         ? interaction.member.displayName
@@ -298,7 +311,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     await logError(interaction.client, "Order Processing Failed", error, {
       User: interaction.user.id,
     });
-    
+
     await handleInteractionError(
       interaction,
       error,
