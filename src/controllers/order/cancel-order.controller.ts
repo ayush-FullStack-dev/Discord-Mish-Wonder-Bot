@@ -3,7 +3,10 @@ import { Order } from "../../models/order.model.js";
 import { cancelOrder } from "../../services/order.service.js";
 import { sendError } from "../../ui/utils/sendError.js";
 import { sendSuccess } from "../../ui/utils/sendSuccess.js";
-import { handleInteractionError } from "../../utils/error-handler.js";
+import {
+  attemptInteractionResponse,
+  handleInteractionError,
+} from "../../utils/error-handler.js";
 import { deleteOrderTicket } from "../../helpers/deleteOrderTicket.js";
 
 export async function handleCancelOrder(interaction: ButtonInteraction) {
@@ -25,10 +28,12 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
     });
 
   try {
-    await interaction.deferReply({
-       flags: MessageFlags.Ephemeral,
-    });
-
+    await attemptInteractionResponse(interaction, () =>
+      interaction.deferReply({
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+    
     const checkoutId = interaction.customId.split(":")[2];
     const discordUserId = interaction.user.id;
 
@@ -47,7 +52,7 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
       checkoutId,
       discordUserId,
       status: "pending",
-      confirming: false
+      confirming: false,
     });
 
     if (!order) {

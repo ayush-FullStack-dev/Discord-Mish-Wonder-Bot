@@ -2,7 +2,12 @@ import { REST, Routes, SlashCommandBuilder } from "discord.js";
 import { env } from "./config/env.js";
 import { postShopCommand } from "./commands/post-shop.js";
 import { errorLog, info, success } from "../logs/printLogs.js";
-import { addBulkCardsCommand, addCardCommand } from "./commands/card-mange.js";
+import {
+  addBulkCardsCommand,
+  addCardCommand,
+  deleteAllCardsCommand,
+  deleteCardCommand,
+} from "./commands/card-mange.js";
 
 export const commands = [
   new SlashCommandBuilder()
@@ -11,6 +16,8 @@ export const commands = [
   postShopCommand,
   addCardCommand,
   addBulkCardsCommand,
+  deleteCardCommand,
+  deleteAllCardsCommand,
 ].map((command) => command.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(env.discordToken);

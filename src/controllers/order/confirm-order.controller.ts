@@ -9,7 +9,7 @@ import { Order } from "../../models/order.model.js";
 import { confirmOrder, editOrder } from "../../services/order.service.js";
 import { createConfirmedOrderPanel } from "../../ui/order/createConfirmedOrderPanel.js";
 import { sendError } from "../../ui/utils/sendError.js";
-import { handleInteractionError } from "../../utils/error-handler.js";
+import { attemptInteractionResponse, handleInteractionError } from "../../utils/error-handler.js";
 import { deductBalance, getBalance } from "../../services/balance.service.js";
 import { centsToDollars, dollarsToCents } from "../../utils/util.js";
 
@@ -17,9 +17,11 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
   let claimedOrderId: typeof Order.prototype._id | null = null;
 
   try {
-    await interaction.deferReply({
-      flags: MessageFlags.Ephemeral,
-    });
+    await attemptInteractionResponse(interaction, () =>
+      interaction.deferReply({
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
 
     const checkoutId = interaction.customId.split(":")[2];
     const discordUserId = interaction.user.id;

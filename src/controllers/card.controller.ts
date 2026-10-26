@@ -7,7 +7,9 @@ import {
   handleInteractionError,
   UserFacingError,
 } from "../utils/error-handler.js";
-import { addCard } from "../services/card.service.js";
+import { addCard, burnCard } from "../services/card.service.js";
+import { sendError } from "../ui/utils/sendError.js";
+import { sendSuccess } from "../ui/utils/sendSuccess.js";
 
 type CardReference = {
   cardnumber: string;
@@ -157,6 +159,45 @@ export async function handleAddBulkCard(
     );
 
     return;
+  } catch (error) {
+    await handleInteractionError(interaction, error);
+  }
+}
+
+export async function handleDeleteCard(
+  interaction: ChatInputCommandInteraction,
+) {
+  try {
+    if (!(await requireAdmin(interaction))) return;
+
+    await attemptInteractionResponse(interaction, () =>
+      interaction.deferReply({
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+
+    const lastFour = interaction.options.getString("last-four", true).trim();
+
+    if (!/^\d{4}$/.test(lastFour)) {
+      await attemptInteractionResponse(interaction, () =>
+        sendError(interaction, {
+          title: "Invalid Card Number",
+          description:
+            "Please provide exactly the last four digits of the card.",
+        }),
+      );
+      return;
+    }
+
+    const result = await burnCard(lastFour);
+
+    await attemptInteractionResponse(interaction, () =>
+      sendSuccess(interaction, {
+        title: "Card Deleted",
+        description: `The card ending in ${lastFour} has been deleted successfully.`,
+        footer: "MishGPT • Card Management",
+      }),
+    );
   } catch (error) {
     await handleInteractionError(interaction, error);
   }

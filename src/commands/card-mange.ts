@@ -23,3 +23,21 @@ export const addBulkCardsCommand = new SlashCommandBuilder()
       .setDescription("Upload a supported card-import file.")
       .setRequired(true),
   );
+
+export const deleteCardCommand = new SlashCommandBuilder()
+  .setName("delete-card")
+  .setDescription("Delete a credit or debit card from the payment card pool.")
+  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+  .addStringOption((option) =>
+    option
+      .setName("last-four")
+      .setDescription("Enter the last 4 digits of the card.")
+      .setRequired(true)
+      .setMinLength(4)
+      .setMaxLength(4),
+  );
+
+export const deleteAllCardsCommand = new SlashCommandBuilder()
+  .setName("delete-all-cards")
+  .setDescription("Delete all cards from the payment card pool.")
+  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild);
