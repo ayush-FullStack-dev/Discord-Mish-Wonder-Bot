@@ -15,7 +15,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "deploy:commands": "tsx src/deploy-commands.ts",
-    "start": "node dist/index.js",
+    "start": "node dist/src/index.js",
     "typecheck": "tsc --noEmit"
   },
   "bugs": {
