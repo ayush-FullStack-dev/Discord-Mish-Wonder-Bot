@@ -1,6 +1,6 @@
 import type { ModalSubmitInteraction } from "discord.js";
 import { GuildMember, MessageFlags } from "discord.js";
-import { createOrder } from "../../services/order.service.js";
+import { cancelOrder, createOrder } from "../../services/order.service.js";
 import {
   attemptInteractionResponse,
   handleInteractionError,
@@ -13,11 +13,12 @@ import { createCheckoutPanel } from "../../ui/order/createCheckoutPanel.js";
 import type { CheckoutData } from "../../ui/order/createCheckoutPanel.js";
 import { UserChain } from "../../models/userChain.model.js";
 import { Order } from "../../models/order.model.js";
-import { formatExpiryDate } from "../../utils/util.js";
+import { centsToDollars, formatExpiryDate } from "../../utils/util.js";
 import {
   accountConfigure,
   getJobStatus,
 } from "../../services/account.service.js";
+import { getBalance } from "../../services/balance.service.js";
 
 const ORDER_ERRORS: Record<
   string,
@@ -83,6 +84,16 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
 
     let lastChain = oldChain?.lastChain || "1";
 
+    const balance = await getBalance(interaction.user.id);
+    if (balance === null || balance < 500) {
+      return sendError(interaction, {
+        title: "Insufficient Balance",
+        description: "You need at least $5 to start a checkout.",
+        footer: "Please deposit funds and try again.",
+      });
+    }
+    const dollarBalance = centsToDollars(balance);
+
     const pendingOrder = await Order.countDocuments({
       discordUserId: interaction.user.id,
       status: "pending",
@@ -114,38 +125,38 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         "Please don't close this interaction while your account is being created.",
     });
 
-    // const account = await accountConfigure({ count: 1, chain: lastChain });
+    const account = await accountConfigure({ count: 1, chain: lastChain });
 
-    // if (!account.ok) {
-    //   throw new Error("Failed to create account Please try again later");
-    // }
+    if (!account.ok) {
+      throw new Error("Failed to create account Please try again later");
+    }
 
-    // if (account.state === "queued") {
-    //   let accountStatus = await getJobStatus(account.job);
+    if (account.state === "queued") {
+      let accountStatus = await getJobStatus(account.job);
 
-    //   if (!accountStatus.ok && !accountStatus.retryable) {
-    //     throw new Error(
-    //       "Failed to fetch account status Please try again later",
-    //     );
-    //   }
+      if (!accountStatus.ok && !accountStatus.retryable) {
+        throw new Error(
+          "Failed to fetch account status Please try again later",
+        );
+      }
 
-    //   while (!accountStatus.done) {
-    //     await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
-    //     accountStatus = await getJobStatus(account.job);
+      while (!accountStatus.done) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
+        accountStatus = await getJobStatus(account.job);
 
-    //     if (!accountStatus.ok) {
-    //       throw new Error(
-    //         "Failed to fetch account status Please try again later",
-    //       );
-    //     }
-    //   }
-    // }
+        if (!accountStatus.ok) {
+          throw new Error(
+            "Failed to fetch account status Please try again later",
+          );
+        }
+      }
+    }
 
     try {
       await UserChain.findOneAndUpdate(
         { discordId: interaction.user.id },
         { $set: { lastChain } },
-        { upsert: true,  setDefaultsOnInsert: true },
+        { upsert: true, setDefaultsOnInsert: true },
       );
     } catch {}
 
@@ -181,6 +192,23 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     }
 
     const data = result.data;
+
+    if (data.price.total > Number(dollarBalance)) {
+      const additionalFunds = (
+        data.price.total - Number(dollarBalance)
+      ).toFixed(2);
+
+      try {
+        await cancelOrder(data.id);
+      } catch {
+      } finally {
+        return sendError(interaction, {
+          title: "Insufficient Balance",
+          description: `You need an additional $${additionalFunds} to complete this checkout.`,
+          footer: "Please deposit more funds and try again.",
+        });
+      }
+    }
 
     const displayName =
       interaction.member instanceof GuildMember
@@ -245,6 +273,8 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         footer: "Your order stays private inside that ticket.",
       }),
     );
+
+    return;
   } catch (error) {
     await handleInteractionError(
       interaction,

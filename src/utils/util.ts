@@ -14,3 +14,11 @@ function formatExpiry(seconds?: number): string {
     ? `${minutes}m ${remainingSeconds}s`
     : `${remainingSeconds}s`;
 }
+
+export function centsToDollars(cents: bigint): string {
+  return (Number(cents) / 100).toFixed(2);
+}
+
+export function dollarsToCents(dollars: number): bigint {
+  return BigInt(Math.round(dollars * 100));
+}

@@ -43,6 +43,11 @@ const orderSchema = new Schema(
       index: { expires: 0 },
     },
 
+    confirming: {
+      type: Boolean,
+      default: false,
+    },
+
     trackingUrl: {
       type: String,
       default: null,

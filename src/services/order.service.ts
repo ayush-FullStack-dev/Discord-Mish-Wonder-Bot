@@ -62,7 +62,6 @@ export async function createOrder(
       `${env.yonderApiBaseUrl}/checkouts`,
       {
         cart_code: input.cartCode,
-        card: "6011410090973830,08/29,284,33172",
       },
       {
         headers: {
@@ -202,42 +201,22 @@ export async function cancelOrder(id: string) {
 }
 export async function confirmOrder(id: string) {
   try {
-    // const response = await axios.post(
-    //   `${env.yonderApiBaseUrl}/checkouts/${encodeURIComponent(id)}/confirm`,
-    //   {},
-    //   {
-    //     headers: {
-    //       Authorization: `Bearer ${env.yonderApiKey}`,
-    //       "Content-Type": "application/json",
-    //     },
-    //   },
-    // );
+    const response = await axios.post(
+      `${env.yonderApiBaseUrl}/checkouts/${encodeURIComponent(id)}/confirm`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${env.yonderApiKey}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
 
-    // console.log(response.data);
+    console.log(response.data);
 
     return {
       ok: true as const,
-      data: {
-        ok: true,
-        id: "chk_8f2a41c07b93",
-        status: "placed",
-        order_id: "4b81f0c2-9a17-4e0d-bb42-1c9a7f",
-        tracking: "https://yonderdrop.com/track/X7K2M9",
-        restaurant: "Bella Vista Kitchen",
-        price: {
-          subtotal: 27.8,
-          referral: -15,
-          service: 2.99,
-          delivery: 0,
-          tax: 1.04,
-          tip: 5,
-          credit: 0,
-          total: 21.83,
-        },
-        chain: "2",
-        account: "buyer-04@…",
-        card: "•••• 4242",
-      },
+      data: response.data
     };
   } catch (error: unknown) {
     console.log(error);
