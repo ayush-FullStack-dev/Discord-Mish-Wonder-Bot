@@ -12,11 +12,22 @@ import {
 } from "../utils/error-handler.js";
 import { handleCancelOrder } from "../controllers/order/cancel-order.controller.js";
 import { handleConfirmOrder } from "../controllers/order/confirm-order.controller.js";
+import { sendSuccess } from "../ui/utils/sendSuccess.js";
 
 export function registerInteractionHandler(client: Client) {
   client.on(Events.InteractionCreate, async (interaction) => {
     try {
       if (interaction.isChatInputCommand()) {
+        if (interaction.commandName === "ping") {
+          await attemptInteractionResponse(interaction, () =>
+            sendSuccess(interaction, {
+              title: "Pong!",
+              description: "The bot is online and responding normally.",
+              footer: "MishGPT • System Operational",
+            }),
+          );
+        }
+        
         if (interaction.commandName === "post-shop") {
           await postShopPanel(interaction, client);
         }
