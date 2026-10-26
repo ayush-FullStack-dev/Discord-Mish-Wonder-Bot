@@ -9,7 +9,10 @@ import { Order } from "../../models/order.model.js";
 import { confirmOrder, editOrder } from "../../services/order.service.js";
 import { createConfirmedOrderPanel } from "../../ui/order/createConfirmedOrderPanel.js";
 import { sendError } from "../../ui/utils/sendError.js";
-import { attemptInteractionResponse, handleInteractionError } from "../../utils/error-handler.js";
+import {
+  attemptInteractionResponse,
+  handleInteractionError,
+} from "../../utils/error-handler.js";
 import { deductBalance, getBalance } from "../../services/balance.service.js";
 import { centsToDollars, dollarsToCents } from "../../utils/util.js";
 
@@ -167,7 +170,9 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     }
 
     const panel = createConfirmedOrderPanel({ order: data });
-    await interaction.followUp(panel);
+    await attemptInteractionResponse(interaction, () =>
+      interaction.followUp(panel),
+    );
 
     const channel = interaction.channel;
 

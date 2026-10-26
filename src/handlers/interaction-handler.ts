@@ -1,10 +1,16 @@
 import { Events, type Client } from "discord.js";
 import { createOrderModal } from "../ui/order/order-modal.js";
-import { handleOrderModal } from "../controllers/order/order.controller.js";
+import {
+  handleCloseOrder,
+  handleDeleteAllOrders,
+  handleOrderModal,
+} from "../controllers/order/order.controller.js";
 import { postShopPanel } from "../controllers/post-shop.controller.js";
 import {
   handleAddBulkCard,
   handleAddSingleCard,
+  handleDeleteAllCards,
+  handleDeleteCard,
 } from "../controllers/card.controller.js";
 import {
   attemptInteractionResponse,
@@ -19,25 +25,35 @@ export function registerInteractionHandler(client: Client) {
     try {
       if (interaction.isChatInputCommand()) {
         if (interaction.commandName === "ping") {
-          await attemptInteractionResponse(interaction, () =>
-            sendSuccess(interaction, {
-              title: "Pong!",
-              description: "The bot is online and responding normally.",
-              footer: "MishGPT • System Operational",
-            }),
-          );
+          await sendSuccess(interaction, {
+            title: "Pong!",
+            description: "The bot is online and responding normally.",
+            footer: "MishGPT • System Operational",
+          });
         }
-        
         if (interaction.commandName === "post-shop") {
           await postShopPanel(interaction, client);
         }
 
+        if (interaction.commandName === "close-order") {
+          await handleCloseOrder(interaction);
+        }
+         if (interaction.commandName === "close-all-orders") {
+          await handleDeleteAllOrders(interaction);
+        }
+        
+
         if (interaction.commandName === "add-card") {
           await handleAddSingleCard(interaction);
         }
-
         if (interaction.commandName === "add-bulk-cards") {
           await handleAddBulkCard(interaction);
+        }
+        if (interaction.commandName === "delete-card") {
+          await handleDeleteCard(interaction);
+        }
+        if (interaction.commandName === "delete-all-cards") {
+          await handleDeleteAllCards(interaction);
         }
       } else if (interaction.isButton()) {
         if (interaction.customId === "wonder:buy") {

@@ -1,16 +1,21 @@
 import {
   MessageFlags,
   type Interaction,
-  type RepliableInteraction,
 } from "discord.js";
 import { errorLog } from "../../logs/printLogs.js";
 import { sendError } from "../ui/utils/sendError.js";
+import {
+  hasFailedInteractionResponse,
+  hasInvalidInteractionCode,
+  isInvalidInteraction,
+} from "./interaction-response.js";
+export {
+  attemptInteractionResponse,
+  hasInvalidInteractionCode,
+} from "./interaction-response.js";
 
 const defaultInteractionErrorMessage =
   "Something went wrong. Please try again.";
-const failedInitialResponses = new WeakSet<Interaction>();
-const failedDeferredResponses = new WeakSet<Interaction>();
-const invalidInteractions = new WeakSet<Interaction>();
 const loggedErrors = new WeakSet<object>();
 
 export class UserFacingError extends Error {}
@@ -78,11 +83,6 @@ export function logApplicationError(context: string, error: unknown): void {
   }
 }
 
-export function hasInvalidInteractionCode(error: unknown): boolean {
-  const code = getErrorCode(error);
-  return code === 10062 || code === 40060;
-}
-
 export async function handleInteractionError(
   interaction: Interaction,
   error: unknown,
@@ -98,9 +98,8 @@ export async function handleInteractionError(
     if (
       !interaction.isRepliable() ||
       interaction.replied ||
-      invalidInteractions.has(interaction) ||
-      (interaction.deferred && failedDeferredResponses.has(interaction)) ||
-      (!interaction.deferred && failedInitialResponses.has(interaction))
+      isInvalidInteraction(interaction) ||
+      hasFailedInteractionResponse(interaction)
     ) {
       return;
     }
@@ -157,25 +156,4 @@ export function registerGlobalErrorHandlers(
   });
 
   return handleFatalError;
-}
-
-export async function attemptInteractionResponse<T>(
-  interaction: RepliableInteraction,
-  response: () => Promise<T>,
-): Promise<T> {
-  const isInitialResponse = !interaction.replied && !interaction.deferred;
-
-  try {
-    return await response();
-  } catch (error) {
-    if (hasInvalidInteractionCode(error)) {
-      invalidInteractions.add(interaction);
-    } else if (isInitialResponse) {
-      failedInitialResponses.add(interaction);
-    } else if (interaction.deferred && !interaction.replied) {
-      failedDeferredResponses.add(interaction);
-    }
-
-    throw error;
-  }
 }

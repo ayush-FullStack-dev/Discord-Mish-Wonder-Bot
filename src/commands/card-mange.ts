@@ -10,7 +10,6 @@ export const addCardCommand = new SlashCommandBuilder()
       .setDescription("Enter the credit or debit card info.")
       .setRequired(true),
   );
-
 export const addBulkCardsCommand = new SlashCommandBuilder()
   .setName("add-bulk-cards")
   .setDescription(
@@ -23,7 +22,6 @@ export const addBulkCardsCommand = new SlashCommandBuilder()
       .setDescription("Upload a supported card-import file.")
       .setRequired(true),
   );
-
 export const deleteCardCommand = new SlashCommandBuilder()
   .setName("delete-card")
   .setDescription("Delete a credit or debit card from the payment card pool.")
@@ -36,7 +34,6 @@ export const deleteCardCommand = new SlashCommandBuilder()
       .setMinLength(4)
       .setMaxLength(4),
   );
-
 export const deleteAllCardsCommand = new SlashCommandBuilder()
   .setName("delete-all-cards")
   .setDescription("Delete all cards from the payment card pool.")

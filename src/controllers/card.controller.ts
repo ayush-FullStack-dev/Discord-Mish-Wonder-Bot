@@ -7,9 +7,7 @@ import {
   handleInteractionError,
   UserFacingError,
 } from "../utils/error-handler.js";
-import { addCard, burnCard } from "../services/card.service.js";
-import { sendError } from "../ui/utils/sendError.js";
-import { sendSuccess } from "../ui/utils/sendSuccess.js";
+import { addCard, burnCard, deleteCards } from "../services/card.service.js";
 
 type CardReference = {
   cardnumber: string;
@@ -180,25 +178,53 @@ export async function handleDeleteCard(
 
     if (!/^\d{4}$/.test(lastFour)) {
       await attemptInteractionResponse(interaction, () =>
-        sendError(interaction, {
-          title: "Invalid Card Number",
-          description:
-            "Please provide exactly the last four digits of the card.",
+        interaction.editReply({
+          content: "Please provide exactly the last four digits of the card.",
         }),
       );
       return;
     }
 
-    const result = await burnCard(lastFour);
+    await burnCard(lastFour);
 
     await attemptInteractionResponse(interaction, () =>
-      sendSuccess(interaction, {
-        title: "Card Deleted",
-        description: `The card ending in ${lastFour} has been deleted successfully.`,
-        footer: "MishGPT • Card Management",
+      interaction.editReply({
+        content: `Card ending in ${lastFour} deleted successfully.`,
       }),
     );
   } catch (error) {
-    await handleInteractionError(interaction, error);
+    return await interaction
+      .editReply({
+        content: `Failed to delete card: ${error instanceof Error ? error.message : String(error)}`,
+      })
+      .catch(() => {});
+  }
+}
+
+export async function handleDeleteAllCards(
+  interaction: ChatInputCommandInteraction,
+) {
+  try {
+    if (!(await requireAdmin(interaction))) return;
+
+    await attemptInteractionResponse(interaction, () =>
+      interaction.deferReply({
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+
+    await deleteCards();
+
+    await attemptInteractionResponse(interaction, () =>
+      interaction.editReply({
+        content: "All cards have been deleted successfully.",
+      }),
+    );
+  } catch (error) {
+    return await interaction
+      .editReply({
+        content: `Failed to delete all cards: ${error instanceof Error ? error.message : String(error)}`,
+      })
+      .catch(() => {});
   }
 }

@@ -6,6 +6,7 @@ import {
   MessageFlags,
   type RepliableInteraction,
 } from "discord.js";
+import { attemptInteractionResponse } from "../../utils/interaction-response.js";
 
 type ErrorOptions = {
   title?: string;
@@ -44,16 +45,20 @@ export async function sendError(
     );
 
   if (interaction.deferred || interaction.replied) {
-    return interaction.editReply({
-      content: "",
-      embeds: [],
-      components: [container],
-      flags: MessageFlags.IsComponentsV2,
-    });
+    return attemptInteractionResponse(interaction, () =>
+      interaction.editReply({
+        content: "",
+        embeds: [],
+        components: [container],
+        flags: MessageFlags.IsComponentsV2,
+      }),
+    );
   }
 
-  return interaction.reply({
-    components: [container],
-    flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
-  });
+  return attemptInteractionResponse(interaction, () =>
+    interaction.reply({
+      components: [container],
+      flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+    }),
+  );
 }

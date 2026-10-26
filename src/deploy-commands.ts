@@ -8,6 +8,7 @@ import {
   deleteAllCardsCommand,
   deleteCardCommand,
 } from "./commands/card-mange.js";
+import { closeAllOrdersCommand, closeOrderCommand } from "./commands/order.js";
 
 export const commands = [
   new SlashCommandBuilder()
@@ -18,6 +19,8 @@ export const commands = [
   addBulkCardsCommand,
   deleteCardCommand,
   deleteAllCardsCommand,
+  closeOrderCommand,
+  closeAllOrdersCommand
 ].map((command) => command.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(env.discordToken);

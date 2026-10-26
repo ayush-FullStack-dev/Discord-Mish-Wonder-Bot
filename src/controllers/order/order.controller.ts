@@ -1,5 +1,8 @@
-import type { ModalSubmitInteraction } from "discord.js";
-import { GuildMember, MessageFlags } from "discord.js";
+import type {
+  ChatInputCommandInteraction,
+  ModalSubmitInteraction,
+} from "discord.js";
+import { ChannelType, GuildMember, MessageFlags } from "discord.js";
 import { cancelOrder, createOrder } from "../../services/order.service.js";
 import {
   attemptInteractionResponse,
@@ -19,6 +22,8 @@ import {
   getJobStatus,
 } from "../../services/account.service.js";
 import { getBalance } from "../../services/balance.service.js";
+import { env } from "../../config/env.js";
+import { requireAdmin } from "../../middleware.js";
 
 const ORDER_ERRORS: Record<
   string,
@@ -266,13 +271,11 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       }),
     );
 
-    await attemptInteractionResponse(interaction, () =>
-      sendSuccess(interaction, {
-        title: "Order Ticket Ready",
-        description: `Continue in ${ticket.toString()} — pricing your cart now.`,
-        footer: "Your order stays private inside that ticket.",
-      }),
-    );
+    await sendSuccess(interaction, {
+      title: "Order Ticket Ready",
+      description: `Continue in ${ticket.toString()} — pricing your cart now.`,
+      footer: "Your order stays private inside that ticket.",
+    });
 
     return;
   } catch (error) {
@@ -281,5 +284,109 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       error,
       "Failed to process your order. Please try again later.",
     );
+  }
+}
+
+export async function handleCloseOrder(
+  interaction: ChatInputCommandInteraction,
+) {
+  const channel = interaction.channel;
+
+  if (channel?.type !== ChannelType.GuildText) {
+    await sendError(interaction, {
+      title: "Unable to Close Order",
+      description: "This command can only be used in a server text channel.",
+    });
+    return;
+  }
+
+  if (channel.parentId !== env.orderTicketCategoryId) {
+    await sendError(interaction, {
+      title: "Invalid Channel",
+      description: "This command can only be used inside an order ticket.",
+    });
+    return;
+  }
+
+  try {
+    const closedBy =
+      interaction.member instanceof GuildMember
+        ? interaction.member.displayName
+        : (interaction.user.globalName ?? interaction.user.username);
+
+    await channel.send(
+      `**Order closed by ${closedBy}. This ticket will be deleted in 5 seconds.**`,
+    );
+
+    setTimeout(() => {
+      void channel.delete("Order closed.").catch((error: unknown) => {});
+    }, 5_000);
+  } catch (error) {
+    await sendError(interaction, {
+      title: "Failed to Close Order",
+      description: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+export async function handleDeleteAllOrders(
+  interaction: ChatInputCommandInteraction,
+) {
+  if (!(await requireAdmin(interaction))) return;
+  const displayName =
+    interaction.member instanceof GuildMember
+      ? interaction.member.displayName
+      : (interaction.user.globalName ?? interaction.user.username);
+
+  try {
+    await attemptInteractionResponse(interaction, () =>
+      interaction.deferReply({
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+
+    const category = await interaction.guild?.channels.fetch(
+      env.orderTicketCategoryId,
+    );
+
+    if (!category || category.type !== ChannelType.GuildCategory) {
+      await interaction.editReply({
+        content: "Order ticket category not found.",
+      });
+      return;
+    }
+
+    const tickets = category.children.cache;
+
+    if (tickets.size === 0) {
+      await interaction.editReply({
+        content: "There are no open order tickets to delete.",
+      });
+      return;
+    }
+
+    let deleted = 0;
+    let failed = 0;
+
+    for (const ticket of tickets.values()) {
+      try {
+        await ticket.delete(`All order tickets deleted by ${displayName} admin.`);
+        deleted++;
+      } catch {
+        failed++;
+      }
+    }
+
+    await interaction.editReply({
+      content: `Order ticket cleanup completed.\nDeleted: ${deleted}\nFailed: ${failed}`,
+    });
+  } catch (error) {
+    await interaction
+      .editReply({
+        content: `Failed to delete order tickets: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      })
+      .catch(() => {});
   }
 }
