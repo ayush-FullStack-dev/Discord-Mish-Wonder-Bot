@@ -19,6 +19,7 @@ import {
 import { handleCancelOrder } from "../controllers/order/cancel-order.controller.js";
 import { handleConfirmOrder } from "../controllers/order/confirm-order.controller.js";
 import { sendSuccess } from "../ui/utils/sendSuccess.js";
+import { checkBalance } from "../controllers/balance.controller.js";
 
 export function registerInteractionHandler(client: Client) {
   client.on(Events.InteractionCreate, async (interaction) => {
@@ -38,10 +39,9 @@ export function registerInteractionHandler(client: Client) {
         if (interaction.commandName === "close-order") {
           await handleCloseOrder(interaction);
         }
-         if (interaction.commandName === "close-all-orders") {
+        if (interaction.commandName === "close-all-orders") {
           await handleDeleteAllOrders(interaction);
         }
-        
 
         if (interaction.commandName === "add-card") {
           await handleAddSingleCard(interaction);
@@ -60,6 +60,11 @@ export function registerInteractionHandler(client: Client) {
           await attemptInteractionResponse(interaction, () =>
             interaction.showModal(createOrderModal()),
           );
+          return;
+        }
+
+        if (interaction.customId === "wonder:balance") {
+          await checkBalance(interaction);
           return;
         }
 

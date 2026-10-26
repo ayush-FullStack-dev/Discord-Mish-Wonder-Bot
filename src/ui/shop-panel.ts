@@ -97,14 +97,18 @@ export function createShopPanel(): MessageCreateOptions {
     })
     .setStyle(ButtonStyle.Success);
 
-  const depositButton = new ButtonBuilder()
-    .setCustomId("wonder:deposit")
-    .setLabel("Deposit")
-    .setEmoji("💳")
-    .setStyle(ButtonStyle.Secondary);
+  const checkBalanceButton = new ButtonBuilder()
+    .setCustomId("wonder:balance")
+    .setLabel("Check My Balance")
+    .setEmoji({
+      name: "Wallet1",
+      id: "1564334557636067390",
+    })
+    .setStyle(ButtonStyle.Secondary)
 
   const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
     buyButton,
+    checkBalanceButton,
   );
 
   return {
