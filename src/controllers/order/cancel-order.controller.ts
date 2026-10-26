@@ -1,24 +1,32 @@
-import {
-  ChannelType,
-  GuildMember,
-  MessageFlags,
-  type ButtonInteraction,
-} from "discord.js";
-
+import { GuildMember, MessageFlags, type ButtonInteraction } from "discord.js";
 import { Order } from "../../models/order.model.js";
-import { confirmOrder, editOrder } from "../../services/order.service.js";
-import { createConfirmedOrderPanel } from "../../ui/order/createConfirmedOrderPanel.js";
+import { cancelOrder } from "../../services/order.service.js";
 import { sendError } from "../../ui/utils/sendError.js";
+import { sendSuccess } from "../../ui/utils/sendSuccess.js";
 import { handleInteractionError } from "../../utils/error-handler.js";
-import { deductBalance, getBalance } from "../../services/balance.service.js";
-import { centsToDollars, dollarsToCents } from "../../utils/util.js";
+import { deleteOrderTicket } from "../../helpers/deleteOrderTicket.js";
 
-export async function handleConfirmOrder(interaction: ButtonInteraction) {
-  let claimedOrderId: typeof Order.prototype._id | null = null;
+export async function handleCancelOrder(interaction: ButtonInteraction) {
+  const displayName =
+    interaction.member instanceof GuildMember
+      ? interaction.member.displayName
+      : (interaction.user.globalName ?? interaction.user.username);
+
+  const closeTicket = (reason: string) =>
+    deleteOrderTicket(interaction, {
+      reason,
+      channelName: `❌-order-${displayName
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 85)}`,
+      delay: 10_000,
+    });
 
   try {
     await interaction.deferReply({
-      flags: MessageFlags.Ephemeral,
+       flags: MessageFlags.Ephemeral,
     });
 
     const checkoutId = interaction.customId.split(":")[2];
@@ -30,172 +38,102 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         description: "The checkout ID is missing or invalid.",
         footer: "Please try again or contact support.",
       });
+
+      await closeTicket("Invalid checkout ID");
       return;
     }
 
-    const order = await Order.findOneAndUpdate(
-      {
-        checkoutId,
-        discordUserId,
-        status: "pending",
-        confirming: { $ne: true },
-      },
-      {
-        $set: { confirming: true },
-      },
-      {
-        returnDocument: "after",
-        upsert: false,
-      },
-    ).exec();
+    const order = await Order.findOne({
+      checkoutId,
+      discordUserId,
+      status: "pending",
+      confirming: false
+    });
 
     if (!order) {
       await sendError(interaction, {
-        title: "Order Not Available",
-        description:
-          "This order is already being confirmed or is no longer pending.",
-        footer: "Please check your order status and try again.",
-      });
-      return;
-    }
-
-    claimedOrderId = order._id;
-
-    const balance = await getBalance(discordUserId);
-
-    if (balance === null) {
-      await sendError(interaction, {
-        title: "Wallet Not Found",
-        description: "You don't have a wallet to confirm this order.",
-        footer: "Please deposit funds and try again.",
-      });
-      return;
-    }
-
-    const dollarBalance = Number(centsToDollars(balance));
-
-    if (order.total > dollarBalance) {
-      const additionalFunds = (order.total - dollarBalance).toFixed(2);
-
-      await sendError(interaction, {
-        title: "Insufficient Funds",
+        title: "Order Not Found",
         description: [
-          `Your current balance is $${dollarBalance.toFixed(2)}.`,
-          `The order total is $${order.total.toFixed(2)}.`,
+          "We couldn't find a pending order associated with your account.",
           "",
-          `You need an additional $${additionalFunds} to confirm this order.`,
+          "It may already be confirmed, cancelled, or expired.",
         ].join("\n"),
-        footer: "Please deposit more funds or choose a different order.",
+        footer: "Only pending orders can be cancelled.",
       });
       return;
     }
 
-    const result = await confirmOrder(checkoutId);
+    let result;
 
-    if (result.data?.code === "FORTER_DECLINE" && result.data?.retryable) {
-      await editOrder(checkoutId, { cartcode: "pool" });
+    try {
+      result = await cancelOrder(checkoutId);
+    } catch (error) {
+      await handleInteractionError(
+        interaction,
+        error,
+        "Failed to cancel order",
+      );
+      return;
     }
 
     if (!result.ok) {
       await sendError(interaction, {
-        title: "Order Confirmation Failed",
+        title: "Cancellation Failed",
         description: result.message,
-        footer: "Your order has not been marked as confirmed.",
+        footer:
+          "Your order has not been marked as cancelled. You can try again.",
       });
       return;
     }
 
-    const data = result.data;
-    const orderTotalCents = dollarsToCents(data.price.total);
-
-    const remainingBalance = await deductBalance(
-      discordUserId,
-      orderTotalCents,
+    const updatedOrder = await Order.findOneAndUpdate(
+      {
+        _id: order._id,
+        discordUserId,
+        status: "pending",
+      },
+      {
+        $set: {
+          status: "cancelled",
+          expiresAt: null,
+        },
+      },
+      {
+        returnDocument: "after",
+      },
     );
 
-    if (remainingBalance === null) {
-      console.error(
-        `[RECONCILIATION REQUIRED] Provider confirmed order ${data.order_id}, but wallet deduction failed. Checkout: ${checkoutId}`,
-      );
-
+    if (!updatedOrder) {
       await sendError(interaction, {
-        title: "Payment Reconciliation Required",
+        title: "Order Update Failed",
         description:
-          "Your order has been confirmed by the provider, but the wallet payment could not be recorded. Support must review this order.",
-        footer: `Checkout ID: ${checkoutId}`,
+          "The checkout was cancelled, but we couldn't update its local order record.",
+        footer: "Please contact support to verify your order status.",
       });
-
       return;
     }
 
-    try {
-      const updatedOrder = await Order.findOneAndUpdate(
-        {
-          _id: order._id,
-          discordUserId,
-          status: "pending",
-          confirming: true,
-        },
-        {
-          $set: {
-            status: "confirmed",
-            confirming: false,
-            orderId: data.order_id,
-            trackingUrl: data.tracking,
-            total: data.price.total,
-            expiresAt: null,
-          },
-        },
-        {
-          returnDocument: "after",
-          upsert: false,
-        },
-      ).exec();
+    await sendSuccess(interaction, {
+      title: "Order Cancelled",
+      description: [
+        "Your checkout has been cancelled successfully.",
+        "",
+        `**Checkout ID:** \`${checkoutId}\``,
+        "**Status:** Cancelled",
+        "",
+        "You can now create a new order.",
+      ].join("\n"),
+      footer: "Your order record has been updated.",
+    });
 
-      if (!updatedOrder) {
-        console.error(
-          `[RECONCILIATION REQUIRED] Provider order ${data.order_id} is confirmed and wallet was debited, but the local order record was not updated. Checkout: ${checkoutId}`,
-        );
-      }
-    } catch (error) {
-      console.error(
-        `[RECONCILIATION REQUIRED] Provider order ${data.order_id} is confirmed and wallet was debited, but the local DB update failed. Checkout: ${checkoutId}`,
-        error,
-      );
-    }
-
-    const panel = createConfirmedOrderPanel({ order: data });
-    await interaction.followUp(panel);
-
-    const channel = interaction.channel;
-
-    const displayName =
-      interaction.member instanceof GuildMember
-        ? interaction.member.displayName
-        : (interaction.user.globalName ?? interaction.user.username);
-
-    if (channel?.type === ChannelType.GuildText) {
-      await channel.setName(
-        `✅-order-${displayName.toLowerCase().replace(/[^a-z0-9-]/g, "-")}`,
-      );
-    }
+    await closeTicket("Order cancelled");
   } catch (error) {
-    console.error("Failed to confirm order:", error);
-    await handleInteractionError(interaction, error, "Failed to confirm order");
-  } finally {
-    if (claimedOrderId) {
-      await Order.updateOne(
-        {
-          _id: claimedOrderId,
-          status: "pending",
-          confirming: true,
-        },
-        {
-          $set: { confirming: false },
-        },
-      ).catch((error) => {
-        console.error("Failed to release confirmation lock:", error);
-      });
-    }
+    console.error("Unexpected error in handleCancelOrder:", error);
+
+    await handleInteractionError(
+      interaction,
+      error,
+      "Failed to process order cancellation",
+    );
   }
 }

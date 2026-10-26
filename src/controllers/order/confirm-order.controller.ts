@@ -33,22 +33,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       return;
     }
 
-    const isConfirming = await Order.countDocuments({
-      discordUserId,
-      status: "pending",
-      confirming: true,
-    });
-
-    if (isConfirming > 0) {
-      await sendError(interaction, {
-        title: "Order Already Processing",
-        description:
-          "You already have an order being confirmed. Please wait until the current order is processed before confirming another one.",
-        footer: "Please wait and try again.",
-      });
-      return;
-    }
-
     const order = await Order.findOneAndUpdate(
       {
         checkoutId,
@@ -122,65 +106,65 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     }
 
     const data = result.data;
+    const orderTotalCents = dollarsToCents(data.price.total);
 
     const remainingBalance = await deductBalance(
       discordUserId,
-      dollarsToCents(data.price.total),
+      orderTotalCents,
     );
 
     if (remainingBalance === null) {
       console.error(
-        `Payment reconciliation required: order ${data.order_id} was confirmed externally, but wallet deduction failed.`,
+        `[RECONCILIATION REQUIRED] Provider confirmed order ${data.order_id}, but wallet deduction failed. Checkout: ${checkoutId}`,
       );
 
       await sendError(interaction, {
-        title: "Payment Processing Issue",
+        title: "Payment Reconciliation Required",
         description:
-          "Your order was confirmed, but payment could not be deducted from your wallet. Support must review this order.",
+          "Your order has been confirmed by the provider, but the wallet payment could not be recorded. Support must review this order.",
         footer: `Checkout ID: ${checkoutId}`,
       });
+
       return;
     }
 
-    const updatedOrder = await Order.findOneAndUpdate(
-      {
-        _id: order._id,
-        discordUserId,
-        status: "pending",
-        confirming: true,
-      },
-      {
-        $set: {
-          status: "confirmed",
-          confirming: false,
-          orderId: data.order_id,
-          trackingUrl: data.tracking,
-          total: data.price.total,
-          expiresAt: null,
+    try {
+      const updatedOrder = await Order.findOneAndUpdate(
+        {
+          _id: order._id,
+          discordUserId,
+          status: "pending",
+          confirming: true,
         },
-      },
-      {
-        returnDocument: "after",
-        upsert: false,
-      },
-    ).exec();
+        {
+          $set: {
+            status: "confirmed",
+            confirming: false,
+            orderId: data.order_id,
+            trackingUrl: data.tracking,
+            total: data.price.total,
+            expiresAt: null,
+          },
+        },
+        {
+          returnDocument: "after",
+          upsert: false,
+        },
+      ).exec();
 
-    if (!updatedOrder) {
+      if (!updatedOrder) {
+        console.error(
+          `[RECONCILIATION REQUIRED] Provider order ${data.order_id} is confirmed and wallet was debited, but the local order record was not updated. Checkout: ${checkoutId}`,
+        );
+      }
+    } catch (error) {
       console.error(
-        `Payment reconciliation required: wallet deducted, but local order update failed for ${data.order_id}.`,
+        `[RECONCILIATION REQUIRED] Provider order ${data.order_id} is confirmed and wallet was debited, but the local DB update failed. Checkout: ${checkoutId}`,
+        error,
       );
-
-      await sendError(interaction, {
-        title: "Order Status Update Failed",
-        description:
-          "Payment was deducted, but the local order status could not be updated. Support must review this order.",
-        footer: `Checkout ID: ${checkoutId}`,
-      });
-      return;
     }
 
     const panel = createConfirmedOrderPanel({ order: data });
-
     await interaction.followUp(panel);
 
     const channel = interaction.channel;
@@ -197,7 +181,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     }
   } catch (error) {
     console.error("Failed to confirm order:", error);
-
     await handleInteractionError(interaction, error, "Failed to confirm order");
   } finally {
     if (claimedOrderId) {
