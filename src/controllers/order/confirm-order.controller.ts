@@ -15,6 +15,7 @@ import {
 } from "../../utils/error-handler.js";
 import { deductBalance, getBalance } from "../../services/balance.service.js";
 import { centsToDollars, dollarsToCents } from "../../utils/util.js";
+import { logSuccess, logError } from "../../utils/logger.js";
 
 export async function handleConfirmOrder(interaction: ButtonInteraction) {
   let claimedOrderId: typeof Order.prototype._id | null = null;
@@ -102,6 +103,16 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     }
 
     if (!result.ok) {
+      await logError(
+        interaction.client,
+        "Order Confirmation Failed",
+        result.message,
+        {
+          User: discordUserId,
+          "Checkout ID": checkoutId,
+        },
+      );
+
       await sendError(interaction, {
         title: "Order Confirmation Failed",
         description: result.message,
@@ -119,6 +130,17 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     );
 
     if (remainingBalance === null) {
+      await logError(
+        interaction.client,
+        "Payment Reconciliation Required",
+        `Provider confirmed order ${data.order_id}, but wallet deduction failed.`,
+        {
+          User: discordUserId,
+          "Checkout ID": checkoutId,
+          "Order ID": data.order_id,
+        },
+      );
+
       console.error(
         `[RECONCILIATION REQUIRED] Provider confirmed order ${data.order_id}, but wallet deduction failed. Checkout: ${checkoutId}`,
       );
@@ -132,6 +154,18 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
       return;
     }
+
+    await logSuccess(
+      interaction.client,
+      "Order Confirmed",
+      "Order confirmed and wallet balance deducted.",
+      {
+        User: discordUserId,
+        "Checkout ID": checkoutId,
+        "Order ID": data.order_id,
+        Total: `$${data.price.total}`,
+      },
+    );
 
     try {
       const updatedOrder = await Order.findOneAndUpdate(
@@ -158,14 +192,36 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       ).exec();
 
       if (!updatedOrder) {
-        console.error(
-          `[RECONCILIATION REQUIRED] Provider order ${data.order_id} is confirmed and wallet was debited, but the local order record was not updated. Checkout: ${checkoutId}`,
+        const reconciliationError = `Provider order ${data.order_id} is confirmed and wallet was debited, but the local order record was not updated. Checkout: ${checkoutId}`;
+
+        console.error(`[RECONCILIATION REQUIRED] ${reconciliationError}`);
+
+        await logError(
+          interaction.client,
+          "Order Reconciliation Required",
+          reconciliationError,
+          {
+            User: discordUserId,
+            "Checkout ID": checkoutId,
+            "Order ID": data.order_id,
+          },
         );
       }
     } catch (error) {
       console.error(
         `[RECONCILIATION REQUIRED] Provider order ${data.order_id} is confirmed and wallet was debited, but the local DB update failed. Checkout: ${checkoutId}`,
         error,
+      );
+
+      await logError(
+        interaction.client,
+        "Order Database Update Failed",
+        error,
+        {
+          User: discordUserId,
+          "Checkout ID": checkoutId,
+          "Order ID": data.order_id,
+        },
       );
     }
 
@@ -187,7 +243,12 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       );
     }
   } catch (error) {
+    await logError(interaction.client, "Order Confirmation Error", error, {
+      User: interaction.user.id,
+    });
+
     console.error("Failed to confirm order:", error);
+
     await handleInteractionError(interaction, error, "Failed to confirm order");
   } finally {
     if (claimedOrderId) {

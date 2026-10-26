@@ -92,8 +92,8 @@ export function createShopPanel(): MessageCreateOptions {
     .setCustomId("wonder:buy")
     .setLabel("Place Order")
     .setEmoji({
-      name: "shopping_cart",
-      id: "1563809327486210088",
+      name: "onlineshop",
+      id: "1564357614307909682",
     })
     .setStyle(ButtonStyle.Success);
 
@@ -104,15 +104,28 @@ export function createShopPanel(): MessageCreateOptions {
       name: "Wallet1",
       id: "1564334557636067390",
     })
-    .setStyle(ButtonStyle.Secondary)
+    .setStyle(ButtonStyle.Secondary);
+
+  const getCartCodeButton = new ButtonBuilder()
+    .setLabel("Get Cart code")
+    .setEmoji({
+      name: "shopping_cart",
+      id: "1563809327486210088",
+    })
+    .setStyle(ButtonStyle.Link)
+    .setURL("http://wonder-order-production.up.railway.app");
 
   const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
     buyButton,
     checkBalanceButton,
   );
 
+  const cartCodeRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    getCartCodeButton,
+  );
+
   return {
     flags: MessageFlags.IsComponentsV2,
-    components: [container, buttons],
+    components: [container, buttons, cartCodeRow],
   };
 }

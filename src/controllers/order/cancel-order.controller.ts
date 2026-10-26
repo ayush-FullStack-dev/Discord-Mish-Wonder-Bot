@@ -8,6 +8,7 @@ import {
   handleInteractionError,
 } from "../../utils/error-handler.js";
 import { deleteOrderTicket } from "../../helpers/deleteOrderTicket.js";
+import { logSuccess, logError } from "../../utils/logger.js";
 
 export async function handleCancelOrder(interaction: ButtonInteraction) {
   const displayName =
@@ -33,11 +34,18 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
         flags: MessageFlags.Ephemeral,
       }),
     );
-    
+
     const checkoutId = interaction.customId.split(":")[2];
     const discordUserId = interaction.user.id;
 
     if (!checkoutId) {
+      await logError(
+        interaction.client,
+        "Invalid Checkout",
+        "The checkout ID is missing or invalid.",
+        { User: discordUserId },
+      );
+
       await sendError(interaction, {
         title: "Invalid Checkout",
         description: "The checkout ID is missing or invalid.",
@@ -56,6 +64,16 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
     });
 
     if (!order) {
+      await logError(
+        interaction.client,
+        "Order Not Found",
+        "No pending order was found for this user.",
+        {
+          User: discordUserId,
+          "Checkout ID": checkoutId,
+        },
+      );
+
       await sendError(interaction, {
         title: "Order Not Found",
         description: [
@@ -73,6 +91,11 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
     try {
       result = await cancelOrder(checkoutId);
     } catch (error) {
+      await logError(interaction.client, "Order Cancellation Failed", error, {
+        User: discordUserId,
+        "Checkout ID": checkoutId,
+      });
+
       await handleInteractionError(
         interaction,
         error,
@@ -82,6 +105,16 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
     }
 
     if (!result.ok) {
+      await logError(
+        interaction.client,
+        "Order Cancellation Failed",
+        result.message,
+        {
+          User: discordUserId,
+          "Checkout ID": checkoutId,
+        },
+      );
+
       await sendError(interaction, {
         title: "Cancellation Failed",
         description: result.message,
@@ -109,6 +142,16 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
     );
 
     if (!updatedOrder) {
+      await logError(
+        interaction.client,
+        "Order Update Failed",
+        "The checkout was cancelled by the provider, but the local order record could not be updated.",
+        {
+          User: discordUserId,
+          "Checkout ID": checkoutId,
+        },
+      );
+
       await sendError(interaction, {
         title: "Order Update Failed",
         description:
@@ -117,6 +160,16 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
       });
       return;
     }
+
+    await logSuccess(
+      interaction.client,
+      "Order Cancelled",
+      "The checkout was cancelled successfully and the local order record was updated.",
+      {
+        User: discordUserId,
+        "Checkout ID": checkoutId,
+      },
+    );
 
     await sendSuccess(interaction, {
       title: "Order Cancelled",
@@ -133,6 +186,10 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
 
     await closeTicket("Order cancelled");
   } catch (error) {
+    await logError(interaction.client, "Order Cancellation Error", error, {
+      User: interaction.user.id,
+    });
+
     console.error("Unexpected error in handleCancelOrder:", error);
 
     await handleInteractionError(

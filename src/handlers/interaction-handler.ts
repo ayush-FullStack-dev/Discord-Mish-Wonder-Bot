@@ -18,7 +18,7 @@ import {
 } from "../utils/error-handler.js";
 import { handleCancelOrder } from "../controllers/order/cancel-order.controller.js";
 import { handleConfirmOrder } from "../controllers/order/confirm-order.controller.js";
-import { sendSuccess } from "../ui/utils/sendSuccess.js";
+import { sendSuccessAndLog } from "../utils/logger.js";
 import { checkBalance } from "../controllers/balance.controller.js";
 
 export function registerInteractionHandler(client: Client) {
@@ -26,11 +26,13 @@ export function registerInteractionHandler(client: Client) {
     try {
       if (interaction.isChatInputCommand()) {
         if (interaction.commandName === "ping") {
-          await sendSuccess(interaction, {
-            title: "Pong!",
-            description: "The bot is online and responding normally.",
-            footer: "MishGPT • System Operational",
-          });
+          await sendSuccessAndLog(
+            interaction,
+            "Pong!",
+            "The bot is online and responding normally.",
+            "MishGPT • System Operational",
+            { command: interaction.commandName },
+          );
         }
         if (interaction.commandName === "post-shop") {
           await postShopPanel(interaction, client);

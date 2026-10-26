@@ -21,6 +21,8 @@ export const env = {
   yonderApiBaseUrl: getRequiredEnv("YONDER_API_BASE_URL"),
   mongodbUri: getRequiredEnv("MONGODB_URI"),
   orderTicketCategoryId: getRequiredEnv("ORDER_TICKET_CATEGORY_ID"),
+  successChannelId: getRequiredEnv("SUCCESS_CHANNEL_ID"),
+  errorChannelId: getRequiredEnv("ERROR_CHANNEL_ID"),
   yonderApiKey: getRequiredEnv("YONDER_API_KEY"),
   encryptionKey: getRequiredEnv("ENCRYPTION_KEY"),
   clientId: getRequiredEnv("CLIENT_ID"),

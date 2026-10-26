@@ -24,6 +24,7 @@ import {
 import { getBalance } from "../../services/balance.service.js";
 import { env } from "../../config/env.js";
 import { requireAdmin } from "../../middleware.js";
+import { logError } from "../../utils/logger.js";
 
 const ORDER_ERRORS: Record<
   string,
@@ -180,6 +181,21 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     });
 
     if (result.code !== null && result.code !== undefined) {
+      if (
+        ["NO_CARD", "CARD_REQUIRED", "UNAUTHORIZED", "UNKNOWN_ERROR"].includes(
+          result.code,
+        )
+      ) {
+        await logError(
+          interaction.client,
+          "Order Failed",
+          result.message ?? result.code,
+          {
+            "Error Code": result.code,
+            User: interaction.user.id,
+          },
+        );
+      }
       await sendError(
         interaction,
         ORDER_ERRORS[result.code] ?? {
@@ -279,6 +295,10 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
 
     return;
   } catch (error) {
+    await logError(interaction.client, "Order Processing Failed", error, {
+      User: interaction.user.id,
+    });
+    
     await handleInteractionError(
       interaction,
       error,
@@ -370,7 +390,9 @@ export async function handleDeleteAllOrders(
 
     for (const ticket of tickets.values()) {
       try {
-        await ticket.delete(`All order tickets have been deleted by admin ${displayName}`);
+        await ticket.delete(
+          `All order tickets have been deleted by admin ${displayName}`,
+        );
         deleted++;
       } catch {
         failed++;

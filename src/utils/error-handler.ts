@@ -1,9 +1,6 @@
-import {
-  MessageFlags,
-  type Interaction,
-} from "discord.js";
+import { type Interaction } from "discord.js";
 import { errorLog } from "../../logs/printLogs.js";
-import { sendError } from "../ui/utils/sendError.js";
+import { sendErrorAndLog } from "./logger.js";
 import {
   hasFailedInteractionResponse,
   hasInvalidInteractionCode,
@@ -106,11 +103,14 @@ export async function handleInteractionError(
 
     const message = isUserFacingError(error) ? error.message : responseMessage;
 
-    await sendError(interaction, {
-      title: "Something Went Wrong",
-      description: message,
-      footer: "Please try again later. Contact support if the issue persists.",
-    });
+    await sendErrorAndLog(
+      interaction,
+      "Something Went Wrong",
+      message,
+      "Please try again later. Contact support if the issue persists.",
+      undefined,
+      { context: "Interaction error" },
+    );
   } catch (responseError) {
     if (!hasInvalidInteractionCode(responseError)) {
       logApplicationError(
