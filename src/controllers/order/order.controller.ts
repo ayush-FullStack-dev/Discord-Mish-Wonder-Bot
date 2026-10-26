@@ -24,7 +24,7 @@ import {
 import { getBalance } from "../../services/balance.service.js";
 import { env } from "../../config/env.js";
 import { requireAdmin } from "../../middleware.js";
-import { logError } from "../../utils/logger.js";
+import { logError, sendErrorAndLog } from "../../utils/logger.js";
 
 const ORDER_ERRORS: Record<
   string,
@@ -232,7 +232,24 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         }
       }
     } catch (error) {
-      await cancelOrder(data.id);
+      try {
+        await cancelOrder(data.id);
+      } catch {}
+
+      await sendErrorAndLog(
+        interaction,
+        "Account Creation Failed",
+        error instanceof Error
+          ? error.message
+          : "Failed to create your account. Please try again later.",
+        "Your order has been cancelled. Please try again later.",
+        error,
+        {
+          "Order ID": String(data.id),
+          User: interaction.user.id,
+          Chain: String(lastChain),
+        },
+      );
 
       return sendError(interaction, {
         title: "Account Creation Failed",
