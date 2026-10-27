@@ -7,6 +7,7 @@ import {
 } from "discord.js";
 import { Order } from "../models/order.model.js";
 import { logError } from "../utils/logger.js";
+import { requireAdmin } from "../middleware.js";
 
 export async function handleEarnings(
   interaction: ChatInputCommandInteraction,
@@ -14,6 +15,7 @@ export async function handleEarnings(
   const mode = interaction.options.getString("mode", true);
 
   try {
+    if (!(await requireAdmin(interaction))) return;
     await interaction.deferReply({
       flags: MessageFlags.Ephemeral,
     });
