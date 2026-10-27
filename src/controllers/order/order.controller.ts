@@ -148,7 +148,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
           "CARD_REQUIRED",
           "UNAUTHORIZED",
           "UNKNOWN_ERROR",
-          "CANNOT_PRICE"
+          "CANNOT_PRICE",
         ].includes(result.code)
       ) {
         await logError(
@@ -352,7 +352,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     );
   }
 }
-
 export async function handleCloseOrder(
   interaction: ChatInputCommandInteraction,
 ) {
@@ -380,12 +379,15 @@ export async function handleCloseOrder(
         ? interaction.member.displayName
         : (interaction.user.globalName ?? interaction.user.username);
 
-    await channel.send(
-      `**Order closed by ${closedBy}. This ticket will be deleted in 5 seconds.**`,
-    );
+    await interaction.reply({
+      content: `**Order closed by ${closedBy}. This ticket will be deleted in 5 seconds.**`,
+      allowedMentions: {
+        parse: [],
+      },
+    });
 
     setTimeout(() => {
-      void channel.delete("Order closed.").catch((error: unknown) => {});
+      void channel.delete("Order closed.").catch(() => {});
     }, 5_000);
   } catch (error) {
     await sendError(interaction, {
@@ -394,7 +396,6 @@ export async function handleCloseOrder(
     });
   }
 }
-
 export async function handleDeleteAllOrders(
   interaction: ChatInputCommandInteraction,
 ) {
