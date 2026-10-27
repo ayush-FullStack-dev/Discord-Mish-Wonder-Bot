@@ -73,12 +73,15 @@ export async function createOrder(
 
     const data: CheckoutData = response.data;
 
+    console.log(data)
+
     return {
       code: null,
       message: "Your checkout is being prepared.",
       data,
     };
   } catch (error: unknown) {
+    console.log(error)
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       const apiError: unknown = error.response?.data;
@@ -216,7 +219,7 @@ export async function confirmOrder(id: string) {
 
     return {
       ok: true as const,
-      data: response.data
+      data: response.data,
     };
   } catch (error: unknown) {
     console.log(error);

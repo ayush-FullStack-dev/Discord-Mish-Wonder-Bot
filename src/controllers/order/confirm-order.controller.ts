@@ -99,7 +99,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     const result = await confirmOrder(checkoutId);
 
     if (result.data?.code === "FORTER_DECLINE" && result.data?.retryable) {
-      await editOrder(checkoutId, { cartcode: "pool" });
+      await editOrder(checkoutId, { card: "pool" });
     }
 
     if (!result.ok) {
