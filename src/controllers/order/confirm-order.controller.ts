@@ -14,7 +14,7 @@ import {
   handleInteractionError,
 } from "../../utils/error-handler.js";
 import { deductBalance, getBalance } from "../../services/balance.service.js";
-import { centsToDollars, dollarsToCents } from "../../utils/util.js";
+import { calculateOrderTotal, centsToDollars, dollarsToCents } from "../../utils/util.js";
 import { logSuccess, logError } from "../../utils/logger.js";
 
 export async function handleConfirmOrder(interaction: ButtonInteraction) {
@@ -127,7 +127,17 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     }
 
     const data = result.data;
-    const orderTotalCents = dollarsToCents(data.price.total);
+    const calculatedTotal = calculateOrderTotal({
+      subtotal: data.price.subtotal,
+      referral: data.price.referral,
+      service: data.price.service,
+      delivery: data.price.delivery,
+      tax: data.price.tax,
+      tip: data.price.tip,
+      credit: data.price.credit,
+    });
+
+    const orderTotalCents = dollarsToCents(calculatedTotal);
 
     const remainingBalance = await deductBalance(
       discordUserId,

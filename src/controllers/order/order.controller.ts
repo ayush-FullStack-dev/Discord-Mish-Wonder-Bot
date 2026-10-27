@@ -16,7 +16,11 @@ import { createCheckoutPanel } from "../../ui/order/createCheckoutPanel.js";
 import type { CheckoutData } from "../../ui/order/createCheckoutPanel.js";
 import { UserChain } from "../../models/userChain.model.js";
 import { Order } from "../../models/order.model.js";
-import { centsToDollars, formatExpiryDate } from "../../utils/util.js";
+import {
+  calculateOrderTotal,
+  centsToDollars,
+  formatExpiryDate,
+} from "../../utils/util.js";
 import {
   accountConfigure,
   getJobStatus,
@@ -265,6 +269,44 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       });
     }
 
+    const calculatedTotal = calculateOrderTotal({
+      subtotal: data.price.subtotal,
+      referral: data.price.referral,
+      service: data.price.service,
+      delivery: data.price.delivery,
+      tax: data.price.tax,
+      tip: data.price.tip,
+      credit: data.price.credit,
+    });
+
+    if (!Number.isFinite(calculatedTotal) || calculatedTotal <= 0) {
+      const errorMessage = `Invalid calculated order total: $${calculatedTotal}. Checkout: ${data.id}`;
+
+      await logError(interaction.client, "Invalid Order Total", errorMessage, {
+        User: interaction.user.id,
+        "Checkout ID": data.id,
+        "Provider Total": String(data.price.total),
+        "Calculated Total": String(calculatedTotal),
+        Subtotal: String(data.price.subtotal),
+        Referral: String(data.price.referral),
+        Service: String(data.price.service),
+        Delivery: String(data.price.delivery),
+        Tax: String(data.price.tax),
+        Tip: String(data.price.tip),
+        Credit: String(data.price.credit),
+      });
+
+      await sendError(interaction, {
+        title: "Invalid Order Total",
+        description:
+          "The calculated order total is $0.00 or invalid. Your order has not been confirmed, and no wallet funds have been deducted.",
+        footer: "Please cancel this checkout and contact support.",
+        ephemeral: false,
+      });
+
+      return;
+    }
+
     const displayName =
       interaction.member instanceof GuildMember
         ? interaction.member.displayName
@@ -275,7 +317,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       discordUserId: interaction.user.id,
       checkoutId: data.id,
       orderId: data.order_id,
-      total: data.price.total,
+      total: calculatedTotal,
       confirming: false,
       expiresAt: formatExpiryDate(data.expires_in),
     });
@@ -314,7 +356,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         tax: data.price.tax,
         tip: data.price.tip,
         credit: data.price.credit,
-        total: data.price.total,
+        total: calculatedTotal,
       },
       fulfillment: data.fulfillment,
       dropoff: data.dropoff,

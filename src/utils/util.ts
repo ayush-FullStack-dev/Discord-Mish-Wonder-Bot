@@ -31,3 +31,34 @@ export function formatCountdown(expiresAt: number): string {
 
   return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
 }
+
+export function calculateOrderTotal(price: {
+  subtotal: number;
+  referral: number;
+  service: number;
+  delivery: number;
+  tax: number;
+  tip: number;
+  credit: number;
+}): number {
+  const amounts = [
+    price.subtotal,
+    price.referral,
+    price.service,
+    price.delivery,
+    price.tax,
+    price.tip,
+    price.credit,
+  ];
+
+  if (!amounts.every(Number.isFinite)) {
+    throw new Error("Invalid price breakdown received from provider.");
+  }
+
+  const totalCents = amounts.reduce(
+    (sum, amount) => sum + Math.round(amount * 100),
+    0,
+  );
+
+  return totalCents / 100;
+}
