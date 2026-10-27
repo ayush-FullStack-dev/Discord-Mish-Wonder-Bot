@@ -36,7 +36,7 @@ export function createShopPanel(): MessageCreateOptions {
     .addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
         [
-          "**01** <a:click:1563861291137765396> **Tap Buy**",
+          "**01** <a:click:1563861291137765396> **Tap Place order**",
           "Enter your 6-character cart code.",
           "",
           "**02** <a:shopping_cart:1563809327486210088> **Cart checked**",

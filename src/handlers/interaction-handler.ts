@@ -20,6 +20,7 @@ import { handleCancelOrder } from "../controllers/order/cancel-order.controller.
 import { handleConfirmOrder } from "../controllers/order/confirm-order.controller.js";
 import { sendSuccessAndLog } from "../utils/logger.js";
 import { checkBalance } from "../controllers/balance.controller.js";
+import { handleEarnings } from "../controllers/earnings.controller.js";
 
 export function registerInteractionHandler(client: Client) {
   client.on(Events.InteractionCreate, async (interaction) => {
@@ -43,6 +44,9 @@ export function registerInteractionHandler(client: Client) {
         }
         if (interaction.commandName === "close-all-orders") {
           await handleDeleteAllOrders(interaction);
+        }
+        if (interaction.commandName === "earnings") {
+          await handleEarnings(interaction);
         }
 
         if (interaction.commandName === "add-card") {

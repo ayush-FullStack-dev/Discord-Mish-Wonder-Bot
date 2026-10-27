@@ -225,7 +225,21 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       );
     }
 
+    if (!data.tracking) {
+      await logError(
+        interaction.client,
+        "Order Tracking Missing",
+        new Error("Tracking information is missing for this order."),
+        {
+          "Order ID": String(data.id),
+          User: interaction.user.id,
+          Status: "Tracking Unavailable",
+        },
+      );
+    }
+
     const panel = createConfirmedOrderPanel({ order: data });
+
     await attemptInteractionResponse(interaction, () =>
       interaction.followUp(panel),
     );
