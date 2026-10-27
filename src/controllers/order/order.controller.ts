@@ -143,9 +143,13 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
 
     if (result.code !== null && result.code !== undefined) {
       if (
-        ["NO_CARD", "CARD_REQUIRED", "UNAUTHORIZED", "UNKNOWN_ERROR"].includes(
-          result.code,
-        )
+        [
+          "NO_CARD",
+          "CARD_REQUIRED",
+          "UNAUTHORIZED",
+          "UNKNOWN_ERROR",
+          "CANNOT_PRICE"
+        ].includes(result.code)
       ) {
         await logError(
           interaction.client,
@@ -273,7 +277,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       orderId: data.order_id,
       total: data.price.total,
       confirming: false,
-      expiresAt: formatExpiryDate(900),
+      expiresAt: formatExpiryDate(data.expires_in),
     });
 
     await sendLoading(interaction, {

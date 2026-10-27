@@ -9,6 +9,7 @@ import {
   TextDisplayBuilder,
   type MessageCreateOptions,
 } from "discord.js";
+import { formatCountdown } from "../../utils/util.js";
 
 export interface CheckoutItem {
   name: string;
@@ -93,11 +94,11 @@ export function createCheckoutPanel({
     `### Total: ${money(price.total)}`,
   ].join("\n");
 
-  const expirySeconds = 900; 
+  const expiresAt = Date.now() + (checkout.expires_in ?? 900) * 1000;
 
-  const expiryText = `<a:timer:1564693488078168064> **Checkout expires in:** ${Math.floor(
-    expirySeconds / 60,
-  )}m ${expirySeconds % 60}s`;
+  const expiryText =
+    `<a:timer:1564693488078168064> **Checkout expires in:** ` +
+    `${formatCountdown(expiresAt)}`;
 
   const container = new ContainerBuilder()
     .setAccentColor(GREEN)
@@ -157,8 +158,9 @@ export function createCheckoutPanel({
         [
           "### <a:red_warn:1563801753822957749> Review Before Confirming",
           "Check your items, delivery details and final total.",
-          expiryText,
           "**Your order has not been placed yet.**",
+          "",
+          expiryText,
         ].join("\n"),
       ),
     )
