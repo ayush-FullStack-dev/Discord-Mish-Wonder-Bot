@@ -22,9 +22,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
   try {
     await attemptInteractionResponse(interaction, () =>
-      interaction.deferReply({
-        flags: MessageFlags.Ephemeral,
-      }),
+      interaction.deferReply(),
     );
 
     const checkoutId = interaction.customId.split(":")[2];
@@ -35,6 +33,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         title: "Invalid Checkout",
         description: "The checkout ID is missing or invalid.",
         footer: "Please try again or contact support.",
+        ephemeral: false,
       });
       return;
     }
@@ -61,6 +60,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         description:
           "This order is already being confirmed or is no longer pending.",
         footer: "Please check your order status and try again.",
+        ephemeral: false,
       });
       return;
     }
@@ -74,6 +74,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         title: "Wallet Not Found",
         description: "You don't have a wallet to confirm this order.",
         footer: "Please deposit funds and try again.",
+        ephemeral: false,
       });
       return;
     }
@@ -92,6 +93,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           `You need an additional $${additionalFunds} to confirm this order.`,
         ].join("\n"),
         footer: "Please deposit more funds or choose a different order.",
+        ephemeral: false,
       });
       return;
     }
@@ -117,6 +119,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         title: "Order Confirmation Failed",
         description: result.message,
         footer: "Your order has not been marked as confirmed.",
+        ephemeral: false,
       });
       return;
     }
@@ -150,6 +153,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         description:
           "Your order has been confirmed by the provider, but the wallet payment could not be recorded. Support must review this order.",
         footer: `Checkout ID: ${checkoutId}`,
+        ephemeral: false,
       });
 
       return;
@@ -241,7 +245,10 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     const panel = createConfirmedOrderPanel({ order: data });
 
     await attemptInteractionResponse(interaction, () =>
-      interaction.followUp(panel),
+      interaction.followUp({
+        ...panel,
+        flags: MessageFlags.IsComponentsV2,
+      }),
     );
 
     const channel = interaction.channel;

@@ -12,6 +12,7 @@ type ErrorOptions = {
   title?: string;
   description: string;
   footer?: string;
+  ephemeral?: boolean;
 };
 
 export async function sendError(
@@ -58,7 +59,9 @@ export async function sendError(
   return attemptInteractionResponse(interaction, () =>
     interaction.reply({
       components: [container],
-      flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+      flags:
+        MessageFlags.IsComponentsV2 |
+        (options.ephemeral !== false ? MessageFlags.Ephemeral : 0),
     }),
   );
 }

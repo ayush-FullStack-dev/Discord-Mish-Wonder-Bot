@@ -12,6 +12,7 @@ type LoadingOptions = {
   title?: string;
   description: string;
   footer?: string;
+  ephemeral?: boolean;
 };
 
 export async function sendLoading(
@@ -19,7 +20,7 @@ export async function sendLoading(
   options: LoadingOptions,
 ) {
   const container = new ContainerBuilder()
-    .setAccentColor(0xFEE75C)
+    .setAccentColor(0xfee75c)
     .addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
         `## <a:loading:1563867571793698867>  ${options.title ?? "Processing Request"}`,
@@ -58,7 +59,9 @@ export async function sendLoading(
   return attemptInteractionResponse(interaction, () =>
     interaction.reply({
       components: [container],
-      flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+      flags:
+        MessageFlags.IsComponentsV2 |
+        (options.ephemeral !== false ? MessageFlags.Ephemeral : 0),
     }),
   );
 }

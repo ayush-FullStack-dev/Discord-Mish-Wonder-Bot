@@ -1,4 +1,4 @@
-import { GuildMember, MessageFlags, type ButtonInteraction } from "discord.js";
+import { GuildMember, type ButtonInteraction } from "discord.js";
 import { Order } from "../../models/order.model.js";
 import { cancelOrder } from "../../services/order.service.js";
 import { sendError } from "../../ui/utils/sendError.js";
@@ -30,9 +30,7 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
 
   try {
     await attemptInteractionResponse(interaction, () =>
-      interaction.deferReply({
-        flags: MessageFlags.Ephemeral,
-      }),
+      interaction.deferReply(),
     );
 
     const checkoutId = interaction.customId.split(":")[2];
@@ -50,6 +48,7 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
         title: "Invalid Checkout",
         description: "The checkout ID is missing or invalid.",
         footer: "Please try again or contact support.",
+        ephemeral: false,
       });
 
       await closeTicket("Invalid checkout ID");
@@ -91,6 +90,7 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
           "It may already be confirmed, cancelled, or expired.",
         ].join("\n"),
         footer: "Only pending orders can be cancelled.",
+        ephemeral: false,
       });
       return;
     }
@@ -129,6 +129,7 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
         description: result.message,
         footer:
           "Your order has not been marked as cancelled. You can try again.",
+        ephemeral: false,
       });
       return;
     }
@@ -166,6 +167,7 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
         description:
           "The checkout was cancelled, but we couldn't update its local order record.",
         footer: "Please contact support to verify your order status.",
+        ephemeral: false,
       });
       return;
     }
@@ -191,6 +193,7 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
         "You can now create a new order.",
       ].join("\n"),
       footer: "Your order record has been updated.",
+      ephemeral: false,
     });
 
     await closeTicket("Order cancelled");
