@@ -266,7 +266,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         ? interaction.member.displayName
         : (interaction.user.globalName ?? interaction.user.username);
 
-    const isOrder = await Order.create({
+    await Order.create({
       name: displayName,
       discordUserId: interaction.user.id,
       checkoutId: data.id,
@@ -275,8 +275,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       confirming: false,
       expiresAt: formatExpiryDate(data.expires_in),
     });
-
-    console.log(isOrder);
 
     await sendLoading(interaction, {
       title: "Preparing Order Ticket",
