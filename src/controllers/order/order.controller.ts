@@ -19,6 +19,7 @@ import { Order } from "../../models/order.model.js";
 import {
   calculateOrderTotal,
   centsToDollars,
+  dollarsToCents,
   formatExpiryDate,
 } from "../../utils/util.js";
 import {
@@ -95,11 +96,12 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     let lastChain = oldChain?.lastChain || "1";
 
     const balance = await getBalance(interaction.user.id);
+    const minBalance = 25;
 
-    if (balance === null || balance < 1000) {
+    if (balance === null || balance < dollarsToCents(minBalance)) {
       return sendError(interaction, {
         title: "Insufficient Balance",
-        description: "You need at least $10 to start a checkout.",
+        description: `You need at least $${minBalance} to start a checkout.`,
         footer: "Please deposit funds and try again.",
       });
     }
