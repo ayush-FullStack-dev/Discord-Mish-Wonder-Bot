@@ -6,7 +6,9 @@ import {
 } from "discord.js";
 import { env } from "../config/env.js";
 
-export async function createOrderTicket(interaction: ModalSubmitInteraction) {
+export async function createOrderTicket(
+  interaction: ModalSubmitInteraction,
+) {
   const guild = interaction.guild;
 
   if (!guild) {
@@ -26,15 +28,34 @@ export async function createOrderTicket(interaction: ModalSubmitInteraction) {
       .replace(/^-|-$/g, "")
       .slice(0, 90) || `order-${interaction.user.id}`;
 
+  const adminRoles = guild.roles.cache
+    .filter(
+      (role) =>
+        !role.managed &&
+        role.permissions.has(PermissionFlagsBits.Administrator),
+    )
+    .map((role) => ({
+      id: role.id,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory,
+        PermissionFlagsBits.AttachFiles,
+        PermissionFlagsBits.EmbedLinks,
+      ],
+    }));
+
   const ticket = await guild.channels.create({
     name: channelName,
     type: ChannelType.GuildText,
     parent: env.orderTicketCategoryId,
+
     permissionOverwrites: [
       {
         id: guild.roles.everyone.id,
         deny: [PermissionFlagsBits.ViewChannel],
       },
+      ...adminRoles,
       {
         id: interaction.user.id,
         allow: [

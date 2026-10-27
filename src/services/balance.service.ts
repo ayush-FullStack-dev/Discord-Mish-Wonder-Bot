@@ -8,12 +8,8 @@ export async function getBalance(uid: string): Promise<bigint | null> {
 
   if (!account) return null;
 
-  console.log(account);
-
   return account.cents ?? 0n;
 }
-
-getBalance("600318510819704832");
 
 export async function updateBalance(
   uid: string,
