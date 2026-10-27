@@ -1,9 +1,15 @@
 import {
-  EmbedBuilder,
+  ContainerBuilder,
+  SeparatorBuilder,
+  SeparatorSpacingSize,
+  TextDisplayBuilder,
+  MessageFlags,
   type Client,
   type ColorResolvable,
   type RepliableInteraction,
 } from "discord.js";
+
+import { EmbedBuilder } from "discord.js";
 import { env } from "../config/env.js";
 import { sendSuccess } from "../ui/utils/sendSuccess.js";
 import { sendError } from "../ui/utils/sendError.js";
@@ -37,9 +43,14 @@ async function sendLog(
       .setTimestamp();
 
     for (const [name, value] of Object.entries(options.details ?? {})) {
+      const displayValue =
+        name.toLowerCase() === "user" && /^\d{17,20}$/.test(value)
+          ? `<@${value}>`
+          : value;
+
       embed.addFields({
         name,
-        value: value.slice(0, 1024) || "N/A",
+        value: displayValue.slice(0, 1024) || "N/A",
         inline: true,
       });
     }
@@ -50,18 +61,83 @@ async function sendLog(
   }
 }
 
+async function sendSuccessLog(
+  client: Client,
+  title: string,
+  description: string,
+  details?: Record<string, string>,
+): Promise<void> {
+  try {
+    const channel = await client.channels.fetch(env.successChannelId);
+
+    if (!channel?.isTextBased() || !("send" in channel)) {
+      console.error(
+        `Discord success channel ${env.successChannelId} is unavailable or not text-based.`,
+      );
+      return;
+    }
+
+    const container = new ContainerBuilder()
+      .setAccentColor(0x22c55e)
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          `## <:success:1563913347319996559> ${title}`,
+        ),
+      )
+      .addSeparatorComponents(
+        new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small),
+      )
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(description),
+      );
+
+    const entries = Object.entries(details ?? {});
+
+    if (entries.length > 0) {
+      container.addSeparatorComponents(
+        new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small),
+      );
+
+      const detailLines = entries.slice(0, 6).map(([name, value]) => {
+        const displayValue =
+          name.toLowerCase() === "user" && /^\d{17,20}$/.test(value)
+            ? `<@${value}>`
+            : value;
+
+        return `**${name}**\n${displayValue.slice(0, 900) || "N/A"}`;
+      });
+
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(detailLines.join("\n\n")),
+      );
+    }
+
+    container.addSeparatorComponents(
+      new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small),
+    );
+
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(
+        `-# Success Logs • <t:${Math.floor(Date.now() / 1000)}:f>`,
+      ),
+    );
+
+    await channel.send({
+      components: [container],
+      flags: MessageFlags.IsComponentsV2,
+    });
+  } catch (error) {
+    console.error("Failed to send Discord success log:", error);
+  }
+}
+
 export async function logSuccess(
   client: Client,
   title: string,
   description: string,
   details?: Record<string, string>,
 ): Promise<void> {
-  await sendLog(client, env.successChannelId, {
-    title: `<a:success_tick2:1563913347319996559> ${title}`,
-    description,
-    color: 0x22c55e,
-    ...(details ? { details } : {}),
-  });
+  await sendSuccessLog(client, title, description, details);
 }
 
 export async function logError(
