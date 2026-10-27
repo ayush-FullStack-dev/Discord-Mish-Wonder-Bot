@@ -47,7 +47,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         confirming: { $ne: true },
       },
       {
-        $set: { confirming: true },
+        $set: { expiresAt: null, confirming: true },
       },
       {
         returnDocument: "after",

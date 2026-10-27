@@ -266,13 +266,27 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         ? interaction.member.displayName
         : (interaction.user.globalName ?? interaction.user.username);
 
-    await Order.create({
+    const isOrder = await Order.create({
       name: displayName,
       discordUserId: interaction.user.id,
       checkoutId: data.id,
       orderId: data.order_id,
       total: data.price.total,
+      confirming: false,
       expiresAt: formatExpiryDate(data.expires_in),
+    });
+
+    console.log(isOrder);
+
+    await sendLoading(interaction, {
+      title: "Preparing Order Ticket",
+      description: [
+        "**Setting Up Private Order Channel**",
+        "",
+        "Creating a secure, private channel for your order...",
+        "This ensures your order details stay confidential.",
+      ].join("\n"),
+      footer: "Your order will be sent here once confirmed.",
     });
 
     const ticket = await createOrderTicket(interaction);
