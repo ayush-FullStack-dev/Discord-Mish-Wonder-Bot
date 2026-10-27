@@ -81,7 +81,7 @@ async function sendSuccessLog(
       .setAccentColor(0x22c55e)
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
-          `## <:success:1563913347319996559> ${title}`,
+          `## <a:success_tick2:1563913347319996559> ${title}`,
         ),
       )
       .addSeparatorComponents(

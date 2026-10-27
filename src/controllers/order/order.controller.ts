@@ -273,7 +273,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       orderId: data.order_id,
       total: data.price.total,
       confirming: false,
-      expiresAt: formatExpiryDate(data.expires_in),
+      expiresAt: formatExpiryDate(900),
     });
 
     await sendLoading(interaction, {
