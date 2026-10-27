@@ -8,8 +8,12 @@ export async function getBalance(uid: string): Promise<bigint | null> {
 
   if (!account) return null;
 
+  console.log(account);
+
   return account.cents ?? 0n;
 }
+
+getBalance("600318510819704832");
 
 export async function updateBalance(
   uid: string,
@@ -17,7 +21,7 @@ export async function updateBalance(
 ): Promise<bigint | null> {
   const account = await WalletAccount.findOneAndUpdate(
     { _id: uid },
-    { $set: { cents } },
+    { $set: { cents, updated_at: new Date() } },
     {
       returnDocument: "after",
       upsert: false,
@@ -40,7 +44,7 @@ export async function deductBalance(
       cents: { $gte: cents },
     },
     {
-      $inc: { cents: -cents },
+      $inc: { cents: -cents, updated_at: new Date() },
     },
     {
       returnDocument: "after",
