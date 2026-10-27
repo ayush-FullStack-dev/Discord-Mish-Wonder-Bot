@@ -55,21 +55,12 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
       return;
     }
 
-    const order = await Order.findOneAndUpdate(
-      {
-        checkoutId,
-        discordUserId,
-        status: "pending",
-        confirming: false,
-      },
-      {
-        $set: { expiresAt: null },
-      },
-      {
-        returnDocument: "after",
-        upsert: false,
-      },
-    ).exec();
+    const order = await Order.findOne({
+      checkoutId,
+      discordUserId,
+      status: "pending",
+      confirming: false,
+    });
 
     if (!order) {
       await logError(

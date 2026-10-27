@@ -46,7 +46,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         confirming: { $ne: true },
       },
       {
-        $set: { expiresAt: null, confirming: true },
+        $set: { confirming: true },
       },
       {
         returnDocument: "after",
@@ -62,6 +62,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         footer: "Please check your order status and try again.",
         ephemeral: false,
       });
+
       return;
     }
 
@@ -121,6 +122,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         footer: "Your order has not been marked as confirmed.",
         ephemeral: false,
       });
+
       return;
     }
 
@@ -143,20 +145,9 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           "Order ID": data.order_id,
         },
       );
-
       console.error(
         `[RECONCILIATION REQUIRED] Provider confirmed order ${data.order_id}, but wallet deduction failed. Checkout: ${checkoutId}`,
       );
-
-      await sendError(interaction, {
-        title: "Payment Reconciliation Required",
-        description:
-          "Your order has been confirmed by the provider, but the wallet payment could not be recorded. Support must review this order.",
-        footer: `Checkout ID: ${checkoutId}`,
-        ephemeral: false,
-      });
-
-      return;
     }
 
     await logSuccess(
