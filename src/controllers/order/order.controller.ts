@@ -95,13 +95,15 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     let lastChain = oldChain?.lastChain || "1";
 
     const balance = await getBalance(interaction.user.id);
-    if (balance === null || balance < 500) {
+
+    if (balance === null || balance < 1000) {
       return sendError(interaction, {
         title: "Insufficient Balance",
-        description: "You need at least $5 to start a checkout.",
+        description: "You need at least $10 to start a checkout.",
         footer: "Please deposit funds and try again.",
       });
     }
+
     const dollarBalance = centsToDollars(balance);
 
     const pendingOrder = await Order.countDocuments({
