@@ -215,8 +215,19 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
 
     const data = result.data;
 
-    if (data.price.total < minimumOrderTotal) {
-      const remainingAmount = (minimumOrderTotal - data.price.total).toFixed(2);
+    const calculatedTotal = calculateOrderTotal({
+      subtotal: data.price.subtotal,
+      referral: data.price.referral,
+      service: data.price.service,
+      delivery: data.price.delivery,
+      tax: data.price.tax,
+      tip: data.price.tip,
+      credit: data.price.credit,
+    });
+
+    if (calculatedTotal < minimumOrderTotal) {
+      const remainingAmount = (minimumOrderTotal - calculatedTotal).toFixed(2);
+      
       try {
         await cancelOrder(data.id);
       } catch {
@@ -227,9 +238,9 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
           footer: `Minimum order total: $${minimumOrderTotal}.`,
         });
       }
-    } else if (data.price.total > Number(dollarBalance)) {
+    } else if (calculatedTotal > Number(dollarBalance)) {
       const additionalFunds = (
-        data.price.total - Number(dollarBalance)
+        calculatedTotal - Number(dollarBalance)
       ).toFixed(2);
 
       try {
@@ -243,16 +254,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         });
       }
     }
-
-    const calculatedTotal = calculateOrderTotal({
-      subtotal: data.price.subtotal,
-      referral: data.price.referral,
-      service: data.price.service,
-      delivery: data.price.delivery,
-      tax: data.price.tax,
-      tip: data.price.tip,
-      credit: data.price.credit,
-    });
 
     if (!Number.isFinite(calculatedTotal) || calculatedTotal <= 0) {
       const errorMessage = `Invalid calculated order total: $${calculatedTotal}. Checkout: ${data.id}`;
