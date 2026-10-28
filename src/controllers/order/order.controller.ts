@@ -14,26 +14,23 @@ import { sendSuccess } from "../../ui/utils/sendSuccess.js";
 import { createOrderTicket } from "../../helpers/createOrderTicket.js";
 import { createCheckoutPanel } from "../../ui/order/createCheckoutPanel.js";
 import type { CheckoutData } from "../../ui/order/createCheckoutPanel.js";
-import { UserChain } from "../../models/userChain.model.js";
 import { Order } from "../../models/order.model.js";
 import {
   calculateDiscountedOrderPrice,
   centsToDollars,
-  dollarsToCents,
   formatExpiryDate,
   secondsToMilliseconds,
 } from "../../utils/util.js";
-import {
-  accountConfigure,
-  getJobStatus,
-} from "../../services/account.service.js";
 import { getBalance } from "../../services/balance.service.js";
 import { env } from "../../config/env.js";
 import { requireAdmin } from "../../middleware.js";
 import { logError, sendErrorAndLog } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { decrypt } from "../../utils/encryption.js";
-import { minimumOrderTotal } from "../../constants/constant.js";
+import {
+  minimumOrderSubTotal,
+  maxOrderAmount,
+} from "../../constants/constant.js";
 import { getDiscountPercentage } from "../../services/discount.service.js";
 
 const ORDER_ERRORS: Record<
@@ -274,23 +271,25 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
 
     const calculatedTotal = discountedPrice.total;
 
-    if (data.price.subtotal < minimumOrderTotal) {
-      const remainingAmount = (minimumOrderTotal - data.price.subtotal).toFixed(2);
-      
+    if (data.price.subtotal < minimumOrderSubTotal) {
+      const remainingAmount = (
+        minimumOrderSubTotal - data.price.subtotal
+      ).toFixed(2);
+
       try {
         await cancelOrder(data.id);
       } catch {
       } finally {
         return sendError(interaction, {
           title: "Minimum Order Not Met",
-          description: `Your order total must be at least $${minimumOrderTotal}. Add another $${remainingAmount} to meet the minimum order requirement.`,
-          footer: `Minimum order total: $${minimumOrderTotal}.`,
+          description: `Your order total must be at least $${minimumOrderSubTotal}. Add another $${remainingAmount} to meet the minimum order requirement.`,
+          footer: `Minimum order total: $${minimumOrderSubTotal}.`,
         });
       }
     } else if (calculatedTotal > Number(dollarBalance)) {
-      const additionalFunds = (
-        calculatedTotal - Number(dollarBalance)
-      ).toFixed(2);
+      const additionalFunds = (calculatedTotal - Number(dollarBalance)).toFixed(
+        2,
+      );
 
       try {
         await cancelOrder(data.id);
@@ -300,6 +299,17 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
           title: "Insufficient Balance",
           description: `You need an additional $${additionalFunds} to complete this checkout.`,
           footer: "Please deposit more funds and try again.",
+        });
+      }
+    } else if (calculatedTotal > maxOrderAmount) {
+      try {
+        await cancelOrder(data.id);
+      } catch {
+      } finally {
+        return sendError(interaction, {
+          title: "Order Total Exceeds Limit",
+          description: `The total amount of your order exceeds the maximum allowed limit of $${maxOrderAmount}.`,
+          footer: `Please place an order with a total amount less than $${maxOrderAmount}.`,
         });
       }
     }

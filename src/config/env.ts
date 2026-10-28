@@ -14,6 +14,24 @@ function getRequiredEnv(name: string): string {
   return value;
 }
 
+function getNumberEnv(name: string, defaultValue: number): number {
+  const value = process.env[name]?.trim();
+
+  if (!value) {
+    return defaultValue;
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    errorLog(`Invalid numeric environment variable: ${name}`);
+    process.exitCode = 1;
+    return defaultValue;
+  }
+
+  return parsed;
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   discordToken: getRequiredEnv("DISCORD_TOKEN"),
@@ -27,4 +45,6 @@ export const env = {
   encryptionKey: getRequiredEnv("ENCRYPTION_KEY"),
   clientId: getRequiredEnv("CLIENT_ID"),
   guildId: getRequiredEnv("GUILD_ID"),
+  minimumOrderSubTotal: getNumberEnv("MINIMUM_ORDER_SUBTOTAL", 20),
+  maxOrderAmount: getNumberEnv("MAX_ORDER_AMOUNT", 25),
 } as const;
