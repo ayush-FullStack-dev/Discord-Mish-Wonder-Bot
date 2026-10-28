@@ -146,22 +146,25 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     }).sort({ isPin: -1 });
 
     if (!card) {
-      await sendErrorAndLog(
-        interaction,
-        "No Cards Available",
-        "No active cards are available. Please add more cards to the system.",
-        "Action required: Add new cards to restore order processing.",
-        {
-          User: interaction.user.id,
-        },
-      );
-
-      return sendError(interaction, {
+      await sendError(interaction, {
         title: "No Cards Available",
         description:
           "No payment methods are currently available. Our team is working on adding more cards. Please try again later.",
         footer: "Please wait until more cards become available.",
       });
+
+      await logError(
+        interaction.client,
+        "No Cards Available",
+        "No active cards are available. New cards need to be added to restore order processing.",
+        {
+          User: interaction.user.id,
+          Action: "Add new cards",
+          Status: "No active cards available",
+        },
+      );
+
+      return;
     }
 
     const payCard = {
@@ -198,6 +201,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
           },
         );
       }
+
       await sendError(
         interaction,
         ORDER_ERRORS[result.code] ?? {
