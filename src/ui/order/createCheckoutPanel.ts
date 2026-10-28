@@ -88,8 +88,6 @@ export function createCheckoutPanel({
     `Discount: ${money(price.discount)}`,
     `Service Fee: ${money(price.service)}`,
     `Delivery Fee: ${money(price.delivery)}`,
-    "Discount applies to subtotal, service fee, and delivery fee only.",
-    "",
     `### Total: ${money(price.total)}`,
   ].join("\n");
 
