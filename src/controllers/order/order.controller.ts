@@ -225,7 +225,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       credit: data.price.credit,
     });
 
-    if (calculatedTotal < minimumOrderTotal) {
+    if (data.price.subtotal < minimumOrderTotal) {
       const remainingAmount = (minimumOrderTotal - calculatedTotal).toFixed(2);
       
       try {
