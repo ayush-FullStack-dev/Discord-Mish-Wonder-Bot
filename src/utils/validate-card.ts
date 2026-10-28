@@ -11,18 +11,15 @@ export interface CardReference {
 }
 
 export function validateCardReference(cardReference: string): CardReference {
-  const cardReferenceRegex =
-    /^([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)$/;
-
-  const match = cardReference.match(cardReferenceRegex);
-
-  if (!match) {
+  const fields = cardReference.split("|");
+  if (fields.length !== 7) {
     throw new UserFacingError(
       "Invalid format. Expected: cardnumber|expdate|cvv|address|city|state|zipcode",
     );
   }
 
-  const [, cardnumber, expdate, cvv, address, city, state, zipcode] = match;
+  const [cardnumber, expdate, cvv, address, city, state, zipcode] =
+    fields.map((field) => field.trim());
 
   if (
     !cardnumber ||
@@ -37,9 +34,9 @@ export function validateCardReference(cardReference: string): CardReference {
   }
 
   const validations = {
-    cardnumber: /^(?:\d{4})+$/,
+    cardnumber: /^\d{13,19}$/,
     cvv: /^\d{3,4}$/,
-    expdate: /^(0[1-9]|1[0-2])\/(\d{2}|\d{4})$/,
+    expdate: /^(0[1-9]|1[0-2])\/(?:\d{2}|\d{4})$/,
     address: /^.{1,100}$/,
     city: /^[a-zA-Z\s.'-]{1,60}$/,
     state: /^[a-zA-Z\s.'-]{1,60}$/,
@@ -60,19 +57,19 @@ export function validateCardReference(cardReference: string): CardReference {
     throw new UserFacingError("Invalid CVV format.");
   }
 
-  if (!validations.address.test(address.trim())) {
+  if (!validations.address.test(address)) {
     throw new UserFacingError("Invalid address.");
   }
 
-  if (!validations.city.test(city.trim())) {
+  if (!validations.city.test(city)) {
     throw new UserFacingError("Invalid city.");
   }
 
-  if (!validations.state.test(state.trim())) {
+  if (!validations.state.test(state)) {
     throw new UserFacingError("Invalid state.");
   }
 
-  if (!validations.zipcode.test(zipcode.trim())) {
+  if (!validations.zipcode.test(zipcode)) {
     throw new UserFacingError("Invalid ZIP/postal code.");
   }
 
@@ -80,9 +77,9 @@ export function validateCardReference(cardReference: string): CardReference {
     cardnumber,
     expdate,
     cvv,
-    address: address.trim(),
-    city: city.trim(),
-    state: state.trim(),
-    zipcode: zipcode.trim(),
+    address,
+    city,
+    state,
+    zipcode,
   };
 }

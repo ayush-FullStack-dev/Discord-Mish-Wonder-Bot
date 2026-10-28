@@ -15,16 +15,6 @@ import {
 } from "../services/card.service.js";
 import type { ICard } from "../types/index.js";
 
-type CardReference = {
-  cardnumber: string;
-  cvv: string;
-  expdate: string;
-  address: string;
-  city: string;
-  state: string;
-  zipcode: string;
-};
-
 export async function handleAddSingleCard(
   interaction: ChatInputCommandInteraction,
 ) {
@@ -112,32 +102,29 @@ export async function handleAddBulkCard(
 
     for (const line of lines) {
       try {
-        const fields = line.split("|").map((field) => field.trim());
-
-        if (fields.length < 7) {
-          skipped++;
-          continue;
-        }
-
-        const record = validateCardReference(fields.slice(0, 7).join("|"));
+        const record = validateCardReference(line);
 
         cards.push({
-          ...record,
           encryptedCardNumber: record.cardnumber,
           encryptedCardCvv: record.cvv,
           expiryDate: record.expdate,
+          zipcode: record.zipcode,
+          state: record.state,
+          city: record.city,
+          address: record.address,
         });
       } catch {
         skipped++;
       }
     }
 
-    const requestedCount = cards.length;
+    let addedCount = 0;
 
     try {
       const data = await addManyCards(cards);
 
       skipped += data.rejectedCount;
+      addedCount = data.acceptedCount;
     } catch (error) {
       await attemptInteractionResponse(interaction, () =>
         interaction.editReply({
@@ -160,8 +147,8 @@ export async function handleAddBulkCard(
     await attemptInteractionResponse(interaction, () =>
       interaction.editReply({
         content:
-          requestedCount > skipped
-            ? `${skipped === 0 ? "All" : requestedCount - skipped} cards have been added successfully.`
+          addedCount > 0
+            ? `${addedCount} cards have been added successfully.`
             : "No cards added.",
       }),
     );
