@@ -35,35 +35,65 @@ export function formatCountdown(expiresAt: number): string {
   return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
 }
 
-export function calculateOrderTotal(price: {
-  subtotal: number;
-  referral: number;
-  service: number;
-  delivery: number;
-  tax: number;
-  tip: number;
-  credit: number;
-}): number {
-  const amounts = [
-    price.subtotal,
-    price.referral,
-    price.service,
-    price.delivery,
-    price.tax,
-    price.tip,
-    price.credit,
-  ];
-
-  if (!amounts.every(Number.isFinite)) {
-    throw new Error("Invalid price breakdown received from provider.");
+export function calculateDiscountedOrderPrice(
+  price: {
+    subtotal: number;
+    service: number;
+    delivery: number;
+    referral?: number;
+    tax?: number;
+    tip?: number;
+    credit?: number;
+  },
+  discountPercentage: number,
+): { total: number; discount: number } {
+  if (
+    !Number.isFinite(discountPercentage) ||
+    discountPercentage < 0 ||
+    discountPercentage > 100
+  ) {
+    throw new Error("Invalid order discount percentage.");
   }
 
-  const totalCents = amounts.reduce(
-    (sum, amount) => sum + Math.round(amount * 100),
+  const baseAmounts = [price.subtotal, price.service, price.delivery];
+  if (!baseAmounts.every((amount) => Number.isFinite(amount) && amount >= 0)) {
+    throw new Error(
+      "Invalid order price: subtotal, service, and delivery must be finite non-negative amounts.",
+    );
+  }
+
+  const componentCents = baseAmounts.map((amount) => Math.round(amount * 100));
+  if (!componentCents.every(Number.isSafeInteger)) {
+    throw new Error("Order price exceeds the supported currency range.");
+  }
+
+  const baseAmountCents = componentCents.reduce(
+    (sum, amount) => sum + amount,
     0,
   );
+  if (!Number.isSafeInteger(baseAmountCents)) {
+    throw new Error("Order price exceeds the supported currency range.");
+  }
 
-  return totalCents / 100;
+  const discountCents = Math.round(
+    (baseAmountCents * discountPercentage) / 100,
+  );
+  if (!Number.isSafeInteger(discountCents)) {
+    throw new Error("Calculated discount exceeds the supported currency range.");
+  }
+
+  const totalCents = baseAmountCents - discountCents;
+
+  if (!Number.isSafeInteger(totalCents) || totalCents < 0) {
+    throw new Error(
+      "Calculated discounted order total must be a non-negative safe amount.",
+    );
+  }
+
+  return {
+    total: totalCents / 100,
+    discount: discountCents / 100,
+  };
 }
 
 export const secondsToMilliseconds = (seconds: number): number => seconds * 1000;

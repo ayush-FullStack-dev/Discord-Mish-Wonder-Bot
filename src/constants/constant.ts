@@ -5,3 +5,5 @@ export const ADMIN_USERID = [
 ];
 
 export const minimumOrderTotal = 25;
+
+export const discountPercentage = 55;

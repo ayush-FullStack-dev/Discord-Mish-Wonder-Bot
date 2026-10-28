@@ -17,7 +17,7 @@ import type { CheckoutData } from "../../ui/order/createCheckoutPanel.js";
 import { UserChain } from "../../models/userChain.model.js";
 import { Order } from "../../models/order.model.js";
 import {
-  calculateOrderTotal,
+  calculateDiscountedOrderPrice,
   centsToDollars,
   dollarsToCents,
   formatExpiryDate,
@@ -33,7 +33,10 @@ import { requireAdmin } from "../../middleware.js";
 import { logError, sendErrorAndLog } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { decrypt } from "../../utils/encryption.js";
-import { minimumOrderTotal } from "../../constants/constant.js";
+import {
+  discountPercentage,
+  minimumOrderTotal,
+} from "../../constants/constant.js";
 
 const ORDER_ERRORS: Record<
   string,
@@ -215,15 +218,61 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
 
     const data = result.data;
 
-    const calculatedTotal = calculateOrderTotal({
-      subtotal: data.price.subtotal,
-      referral: data.price.referral,
-      service: data.price.service,
-      delivery: data.price.delivery,
-      tax: data.price.tax,
-      tip: data.price.tip,
-      credit: data.price.credit,
-    });
+    let discountedPrice: ReturnType<typeof calculateDiscountedOrderPrice>;
+    try {
+      discountedPrice = calculateDiscountedOrderPrice(
+        {
+          subtotal: data.price.subtotal,
+          service: data.price.service,
+          delivery: data.price.delivery,
+        },
+        discountPercentage,
+      );
+    } catch (error) {
+      let checkoutCancelled = false;
+      try {
+        const cancellation = await cancelOrder(data.id);
+        checkoutCancelled = cancellation.ok;
+        if (!cancellation.ok) {
+          await logError(
+            interaction.client,
+            "Invalid Order Pricing Cancellation Failed",
+            cancellation.message,
+            {
+              User: interaction.user.id,
+              "Checkout ID": data.id,
+            },
+          );
+        }
+      } catch (cancellationError) {
+        await logError(
+          interaction.client,
+          "Invalid Order Pricing Cancellation Failed",
+          cancellationError,
+          {
+            User: interaction.user.id,
+            "Checkout ID": data.id,
+          },
+        );
+      }
+
+      await sendErrorAndLog(
+        interaction,
+        "Invalid Order Pricing",
+        "We couldn't calculate a valid customer total for this checkout.",
+        checkoutCancelled
+          ? "The checkout was cancelled. Please try again or contact support."
+          : "The checkout could not be cancelled. Please do not confirm it; contact support.",
+        error,
+        {
+          User: interaction.user.id,
+          "Checkout ID": data.id,
+        },
+      );
+      return;
+    }
+
+    const calculatedTotal = discountedPrice.total;
 
     if (data.price.subtotal < minimumOrderTotal) {
       const remainingAmount = (minimumOrderTotal - data.price.subtotal).toFixed(2);
@@ -255,32 +304,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       }
     }
 
-    if (!Number.isFinite(calculatedTotal) || calculatedTotal <= 0) {
-      const errorMessage = `Invalid calculated order total: $${calculatedTotal}. Checkout: ${data.id}`;
-
-      await logError(interaction.client, "Invalid Order Total", errorMessage, {
-        User: interaction.user.id,
-        "Checkout ID": data.id,
-        "Provider Total": String(data.price.total),
-        "Calculated Total": String(calculatedTotal),
-        Subtotal: String(data.price.subtotal),
-        Referral: String(data.price.referral),
-        Service: String(data.price.service),
-        Delivery: String(data.price.delivery),
-        Tax: String(data.price.tax),
-        Tip: String(data.price.tip),
-        Credit: String(data.price.credit),
-      });
-
-      await sendError(interaction, {
-        title: "Invalid Order Total",
-        description:
-          "The calculated order total is $0.00 or invalid. Your order has not been confirmed, and no wallet funds have been deducted.",
-        footer: "Please cancel this checkout and contact support.",
-        ephemeral: false,
-      });
-      return;
-    }
     const displayName =
       interaction.member instanceof GuildMember
         ? interaction.member.displayName
@@ -347,7 +370,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       })),
       price: {
         subtotal: data.price.subtotal,
-        referral: data.price.referral,
+        discount: discountedPrice.discount,
         service: data.price.service,
         delivery: data.price.delivery,
         tax: data.price.tax,

@@ -25,7 +25,7 @@ export interface CheckoutData {
 
   price: {
     subtotal: number;
-    referral: number;
+    discount: number;
     service: number;
     delivery: number;
     tax: number;
@@ -85,11 +85,10 @@ export function createCheckoutPanel({
 
   const pricing = [
     `Subtotal: ${money(price.subtotal)}`,
-    `Discount: ${money(price.referral)}`,
+    `Discount: ${money(price.discount)}`,
     `Service Fee: ${money(price.service)}`,
     `Delivery Fee: ${money(price.delivery)}`,
-    `Tax: ${money(price.tax)}`,
-    `Tip: ${money(price.tip)}`,
+    "Discount applies to subtotal, service fee, and delivery fee only.",
     "",
     `### Total: ${money(price.total)}`,
   ].join("\n");
