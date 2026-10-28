@@ -33,6 +33,7 @@ import { requireAdmin } from "../../middleware.js";
 import { logError, sendErrorAndLog } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { decrypt } from "../../utils/encryption.js";
+import { minimumOrderTotal } from "../../constants/constant.js";
 
 const ORDER_ERRORS: Record<
   string,
@@ -91,21 +92,15 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
 
   try {
     const cartCode = interaction.fields.getTextInputValue("cart_code").trim();
-    const oldChain = await UserChain.findOne()
-      .sort({ updatedAt: -1 })
-      .select("lastChain -_id")
-      .lean();
-
-    let lastChain = oldChain?.lastChain || "1";
 
     const balance = await getBalance(interaction.user.id);
-    const minBalance = 25;
 
-    if (balance === null || balance < dollarsToCents(minBalance)) {
+    if (balance === null || balance < 100) {
       return sendError(interaction, {
         title: "Insufficient Balance",
-        description: `You need at least $${minBalance} to start a checkout.`,
-        footer: "Please deposit funds and try again.",
+        description:
+          "You must have at least $1 in your MishGPT wallet to start a checkout.",
+        footer: "Deposit at least $1 into your MishGPT account and try again.",
       });
     }
 
@@ -220,7 +215,19 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
 
     const data = result.data;
 
-    if (data.price.total > Number(dollarBalance)) {
+    if (data.price.total < minimumOrderTotal) {
+      const remainingAmount = (minimumOrderTotal - data.price.total).toFixed(2);
+      try {
+        await cancelOrder(data.id);
+      } catch {
+      } finally {
+        return sendError(interaction, {
+          title: "Minimum Order Not Met",
+          description: `Your order total must be at least $${minimumOrderTotal}. Add another $${remainingAmount} to meet the minimum order requirement.`,
+          footer: `Minimum order total: $${minimumOrderTotal}.`,
+        });
+      }
+    } else if (data.price.total > Number(dollarBalance)) {
       const additionalFunds = (
         data.price.total - Number(dollarBalance)
       ).toFixed(2);
@@ -235,81 +242,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
           footer: "Please deposit more funds and try again.",
         });
       }
-    }
-
-    await sendLoading(interaction, {
-      title: "Creating Your Account",
-      description: [
-        "**Setting Up Your Account**",
-        "",
-        "Creating your account and securely processing your registration...",
-        "Please wait while we complete the setup.",
-      ].join("\n"),
-      footer:
-        "Please don't close this interaction while your account is being created.",
-    });
-
-    try {
-      const account = await accountConfigure({ count: 1, chain: lastChain });
-
-      if (!account.ok) {
-        throw new Error("Failed to create account Please try again later");
-      }
-
-      if (account.state === "queued") {
-        let accountStatus = await getJobStatus(account.job);
-
-        if (!accountStatus.ok && !accountStatus.retryable) {
-          throw new Error(
-            "Failed to fetch account status Please try again later",
-          );
-        }
-
-        while (!accountStatus.done) {
-          await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
-          accountStatus = await getJobStatus(account.job);
-
-          if (!accountStatus.ok) {
-            throw new Error(
-              "Failed to fetch account status Please try again later",
-            );
-          }
-        }
-      }
-
-      await UserChain.findOneAndUpdate(
-        { discordId: interaction.user.id },
-        { $set: { lastChain } },
-        { upsert: true, setDefaultsOnInsert: true },
-      );
-    } catch (error) {
-      try {
-        await cancelOrder(data.id);
-      } catch {}
-
-      await sendErrorAndLog(
-        interaction,
-        "Account Creation Failed",
-        error instanceof Error
-          ? error.message
-          : "Failed to create your account. Please try again later.",
-        "Your order has been cancelled. Please try again later.",
-        error,
-        {
-          "Order ID": String(data.id),
-          User: interaction.user.id,
-          Chain: String(lastChain),
-        },
-      );
-
-      return sendError(interaction, {
-        title: "Account Creation Failed",
-        description:
-          error instanceof Error
-            ? error.message
-            : "Failed to create your account. Please try again later.",
-        footer: "Your order has been cancelled. Please try again later.",
-      });
     }
 
     const calculatedTotal = calculateOrderTotal({

@@ -4,7 +4,11 @@ import {
   MessageFlags,
   type ButtonInteraction,
 } from "discord.js";
-
+import {
+  accountConfigure,
+  getJobStatus,
+} from "../../services/account.service.js";
+import { UserChain } from "../../models/userChain.model.js";
 import { Order } from "../../models/order.model.js";
 import { confirmOrder, editOrder } from "../../services/order.service.js";
 import { createConfirmedOrderPanel } from "../../ui/order/createConfirmedOrderPanel.js";
@@ -19,8 +23,60 @@ import {
   centsToDollars,
   dollarsToCents,
 } from "../../utils/util.js";
-import { logSuccess, logError } from "../../utils/logger.js";
+import { logSuccess, logError, sendErrorAndLog } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
+
+async function handleCreateAccount(interaction: ButtonInteraction) {
+  try {
+    const oldChain = await UserChain.findOne()
+      .sort({ updatedAt: -1 })
+      .select("lastChain -_id")
+      .lean();
+
+    let lastChain = oldChain?.lastChain || "1";
+
+    const account = await accountConfigure({ count: 1, chain: lastChain });
+
+    if (!account.ok) {
+      throw new Error("Failed to create account Please try again later");
+    }
+
+    if (account.state === "queued") {
+      let accountStatus = await getJobStatus(account.job);
+
+      if (!accountStatus.ok && !accountStatus.retryable) {
+        throw new Error(
+          "Failed to fetch account status Please try again later",
+        );
+      }
+
+      while (!accountStatus.done) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
+        accountStatus = await getJobStatus(account.job);
+
+        if (!accountStatus.ok) {
+          throw new Error(
+            "Failed to fetch account status Please try again later",
+          );
+        }
+      }
+    }
+
+    await UserChain.create({ lastChain });
+  } catch (error) {
+    await sendErrorAndLog(
+      interaction,
+      "Account Creation Failed",
+      "Failed to create the next account.",
+      "Security Log • Account Creation",
+      error,
+      {
+        Action: "Create Next Account",
+        Status: "Failed",
+      },
+    );
+  }
+}
 
 export async function handleConfirmOrder(interaction: ButtonInteraction) {
   let claimedOrderId: typeof Order.prototype._id | null = null;
@@ -276,6 +332,18 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         `✅-order-${displayName.toLowerCase().replace(/[^a-z0-9-]/g, "-")}`,
       );
     }
+
+    try {
+      await UserChain.findOneAndUpdate(
+        { discordId: null },
+        { $set: { discordId: interaction.user.id } },
+        { sort: { createdAt: -1 } },
+      );
+    } catch {}
+
+    setTimeout( async () => {
+       handleCreateAccount(interaction);
+    }, 5_000);
   } catch (error) {
     await logError(interaction.client, "Order Confirmation Error", error, {
       User: interaction.user.id,
