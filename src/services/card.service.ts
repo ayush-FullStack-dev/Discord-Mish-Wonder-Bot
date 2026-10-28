@@ -1,89 +1,123 @@
 import axios from "axios";
 import { env } from "../config/env.js";
+import { Card } from "../models/card.model.js";
+import { encrypt } from "../utils/encryption.js";
+import type { QueryFilter } from "mongoose";
+import type { ICard } from "../types/index.js";
+import { getCardExpirationDate } from "../utils/util.js";
 
-const cardsUrl = `${env.yonderApiBaseUrl}/cards`;
-
-const api = axios.create({
-  headers: {
-    Authorization: `Bearer ${env.yonderApiKey}`,
-    "Content-Type": "application/json",
-  },
-});
-
-function handleApiError(error: unknown): never {
-  if (axios.isAxiosError(error)) {
-    const status = error.response?.status;
-    const data = error.response?.data;
-
-    const message =
-      typeof data?.error === "string" ? data.error : error.message;
-
-    throw new Error(`Yonder API error (${status ?? "unknown"}): ${message}`);
+function handleDatabaseError(error: unknown): never {
+  if (error instanceof Error) {
+    throw new Error(`Database error: ${error.message}`);
   }
 
-  throw error instanceof Error
-    ? error
-    : new Error("An unexpected Yonder API error occurred.");
+  throw new Error("An unexpected database error occurred.");
 }
 
-export async function addCard(payload: Record<string, unknown>) {
+export async function addCard(payload: ICard) {
   try {
-    const response = await api.post(cardsUrl, payload);
-    return response.data;
+    const data = await Card.create({
+      ...payload,
+      encryptedCardNumber: encrypt(payload.encryptedCardNumber),
+      encryptedCardCvv: encrypt(payload.encryptedCardCvv),
+      last4Digits: payload.encryptedCardNumber.slice(-4),
+      expiresAt: getCardExpirationDate(payload.expiryDate),
+    });
+
+    return {
+      ok: !!data,
+      data,
+    };
   } catch (error: unknown) {
-    handleApiError(error);
+    handleDatabaseError(error);
   }
 }
 
-export async function getCards() {
+export async function addManyCards(payload: ICard[]) {
   try {
-    const response = await api.get(cardsUrl);
-    return response.data;
+    const cards = payload.map((card) => ({
+      ...card,
+      encryptedCardNumber: encrypt(card.encryptedCardNumber),
+      encryptedCardCvv: encrypt(card.encryptedCardCvv),
+      last4Digits: card.encryptedCardNumber.slice(-4),
+      expiresAt: getCardExpirationDate(card.expiryDate),
+    }));
+
+    const data = await Card.insertMany(cards);
+
+    return {
+      ok: data.length >= 1,
+      acceptedCount: data.length,
+      rejectedCount: payload.length - data.length,
+    };
   } catch (error: unknown) {
-    handleApiError(error);
+    handleDatabaseError(error);
   }
 }
 
-export async function pinCard(payload: Record<string, unknown>) {
+export async function getCards(condition: QueryFilter<ICard>) {
   try {
-    const response = await api.post(`${cardsUrl}/pin`, payload);
-    return response.data;
+    const data = await Card.find(condition);
+
+    return {
+      ok: true,
+      data,
+    };
   } catch (error: unknown) {
-    handleApiError(error);
+    handleDatabaseError(error);
   }
 }
-
 
 export async function burnCard(last4: string) {
   try {
     if (!/^\d{4}$/.test(last4)) {
       throw new Error("last4 must contain exactly 4 digits.");
     }
+    const data = await Card.findOneAndDelete({ last4Digits: last4 });
 
-    const response = await api.delete(
-      `${cardsUrl}/${encodeURIComponent(last4)}`,
-    );
-
-    return response.data;
+    return {
+      ok: !!data,
+      data,
+    };
   } catch (error: unknown) {
-    handleApiError(error);
-  }
-}
-
-export async function getCardBurns() {
-  try {
-    const response = await api.get(`${cardsUrl}/burns`);
-    return response.data;
-  } catch (error: unknown) {
-    handleApiError(error);
+    handleDatabaseError(error);
   }
 }
 
 export async function deleteCards() {
   try {
-    const response = await api.delete(cardsUrl);
-    return response.data;
+    const data = await Card.deleteMany({});
+
+    return {
+      ok: data.acknowledged,
+      deletedCount: data.deletedCount,
+    };
   } catch (error: unknown) {
-    handleApiError(error);
+    handleDatabaseError(error);
+  }
+}
+
+export async function pinCard(last4: string) {
+  try {
+    if (!/^\d{4}$/.test(last4)) {
+      throw new Error("last4 must contain exactly 4 digits.");
+    }
+
+    const data = await Card.findOneAndUpdate(
+      { last4Digits: last4 },
+      {
+        isPin: true,
+      },
+      {
+        returnDocument: "after",
+      },
+    );
+
+    return {
+      ok: !!data,
+      data,
+    };
+  } catch (error: unknown) {
+    handleDatabaseError(error);
   }
 }

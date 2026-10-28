@@ -7,7 +7,13 @@ import {
   handleInteractionError,
   UserFacingError,
 } from "../utils/error-handler.js";
-import { addCard, burnCard, deleteCards } from "../services/card.service.js";
+import {
+  addCard,
+  addManyCards,
+  burnCard,
+  deleteCards,
+} from "../services/card.service.js";
+import type { ICard } from "../types/index.js";
 
 type CardReference = {
   cardnumber: string;
@@ -33,12 +39,18 @@ export async function handleAddSingleCard(
 
     const cardReference = interaction.options.getString("card-info", true);
 
-    const { cardnumber, cvv, expdate, zipcode } =
+    const { cardnumber, cvv, expdate, zipcode, state, city, address } =
       validateCardReference(cardReference);
 
     try {
       await addCard({
-        cards: [`${cardnumber},${expdate},${cvv},${zipcode}`],
+        encryptedCardNumber: cardnumber,
+        encryptedCardCvv: cvv,
+        expiryDate: expdate,
+        zipcode: zipcode,
+        state: state,
+        city: city,
+        address: address,
       });
     } catch (error) {
       await attemptInteractionResponse(interaction, () =>
@@ -95,8 +107,7 @@ export async function handleAddBulkCard(
       throw new UserFacingError("The uploaded file is empty.");
     }
 
-    const cards: CardReference[] = [];
-    const cardsInfo: string[] = [];
+    const cards: ICard[] = [];
     let skipped = 0;
 
     for (const line of lines) {
@@ -110,24 +121,23 @@ export async function handleAddBulkCard(
 
         const record = validateCardReference(fields.slice(0, 7).join("|"));
 
-        cardsInfo.push(
-          `${record.cardnumber},${record.expdate},${record.cvv},${record.zipcode}`,
-        );
-
-        cards.push(record);
+        cards.push({
+          ...record,
+          encryptedCardNumber: record.cardnumber,
+          encryptedCardCvv: record.cvv,
+          expiryDate: record.expdate,
+        });
       } catch {
         skipped++;
       }
     }
 
-    const requestedCount = cardsInfo.length;
+    const requestedCount = cards.length;
 
     try {
-      const data = await addCard({
-        cards: cardsInfo,
-      });
+      const data = await addManyCards(cards);
 
-      skipped += data.rejected.length;
+      skipped += data.rejectedCount;
     } catch (error) {
       await attemptInteractionResponse(interaction, () =>
         interaction.editReply({
@@ -155,7 +165,6 @@ export async function handleAddBulkCard(
             : "No cards added.",
       }),
     );
-
     return;
   } catch (error) {
     await handleInteractionError(interaction, error);
@@ -192,6 +201,7 @@ export async function handleDeleteCard(
         content: `Card ending in ${lastFour} deleted successfully.`,
       }),
     );
+    
   } catch (error) {
     return await interaction
       .editReply({

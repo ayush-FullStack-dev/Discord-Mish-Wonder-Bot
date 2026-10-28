@@ -43,6 +43,13 @@ export interface CheckoutData {
   tracking: string | null;
 }
 
+export type OrderCard = {
+  cardNumber: string;
+  cvv: string;
+  expiryDate: string;
+  zipcode: string;
+};
+
 export type CreateOrderResult =
   | {
       code: null;
@@ -56,12 +63,14 @@ export type CreateOrderResult =
 
 export async function createOrder(
   input: CreateOrderInput,
+  card: OrderCard,
 ): Promise<CreateOrderResult> {
   try {
     const response = await axios.post<CheckoutData>(
       `${env.yonderApiBaseUrl}/checkouts`,
       {
         cart_code: input.cartCode,
+        card: `${card.cardNumber},${card.expiryDate},${card.cvv},${card.zipcode}`,
       },
       {
         headers: {
@@ -79,7 +88,6 @@ export async function createOrder(
       data,
     };
   } catch (error: unknown) {
-    console.log(error)
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       const apiError: unknown = error.response?.data;

@@ -2,17 +2,20 @@ export function formatExpiryDate(expiresIn: number): Date {
   return new Date(Date.now() + expiresIn * 1000);
 }
 
-function formatExpiry(seconds?: number): string {
-  if (seconds == null || !Number.isFinite(seconds)) {
-    return "Check expiry before confirming";
+export function getCardExpirationDate(expiryDate: string): Date {
+  const match = expiryDate.match(/^(0[1-9]|1[0-2])\/(\d{2}|\d{4})$/);
+
+  if (!match || !match[2]) {
+    throw new Error("Invalid expiry date. Expected MM/YY or MM/YYYY");
   }
 
-  const minutes = Math.floor(Math.max(0, seconds) / 60);
-  const remainingSeconds = Math.max(0, seconds) % 60;
+  const month = Number(match[1]);
+  const yearPart = match[2];
 
-  return minutes > 0
-    ? `${minutes}m ${remainingSeconds}s`
-    : `${remainingSeconds}s`;
+  const year =
+    yearPart.length === 2 ? 2000 + Number(yearPart) : Number(yearPart);
+
+  return new Date(Date.UTC(year, month, 1));
 }
 
 export function centsToDollars(cents: bigint): string {
@@ -62,3 +65,5 @@ export function calculateOrderTotal(price: {
 
   return totalCents / 100;
 }
+
+export const secondsToMilliseconds = (seconds: number): number => seconds * 1000;

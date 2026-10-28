@@ -9,6 +9,7 @@ import {
 } from "../../utils/error-handler.js";
 import { deleteOrderTicket } from "../../helpers/deleteOrderTicket.js";
 import { logSuccess, logError } from "../../utils/logger.js";
+import { Card } from "../../models/card.model.js";
 
 export async function handleCancelOrder(interaction: ButtonInteraction) {
   const displayName =
@@ -60,7 +61,7 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
       discordUserId,
       status: "pending",
       confirming: false,
-    });
+    }).populate("card", "_id last4Digits expiryDate status");
 
     if (!order) {
       await logError(
@@ -171,6 +172,11 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
         User: discordUserId,
         "Checkout ID": checkoutId,
       },
+    );
+
+    await Card.findOneAndUpdate(
+      { _id: order.card?._id },
+      { $set: { isLocked: false } },
     );
 
     await sendSuccess(interaction, {

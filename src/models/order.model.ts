@@ -48,6 +48,13 @@ const orderSchema = new Schema(
       default: false,
     },
 
+    card: {
+      type: Schema.Types.ObjectId,
+      ref: "Card",
+      default: null,
+      index: true,
+    },
+
     trackingUrl: {
       type: String,
       default: null,

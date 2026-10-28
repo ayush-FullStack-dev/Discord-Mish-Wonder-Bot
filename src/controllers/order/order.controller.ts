@@ -21,6 +21,7 @@ import {
   centsToDollars,
   dollarsToCents,
   formatExpiryDate,
+  secondsToMilliseconds,
 } from "../../utils/util.js";
 import {
   accountConfigure,
@@ -30,6 +31,8 @@ import { getBalance } from "../../services/balance.service.js";
 import { env } from "../../config/env.js";
 import { requireAdmin } from "../../middleware.js";
 import { logError, sendErrorAndLog } from "../../utils/logger.js";
+import { Card } from "../../models/card.model.js";
+import { decrypt } from "../../utils/encryption.js";
 
 const ORDER_ERRORS: Record<
   string,
@@ -127,14 +130,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       return;
     }
 
-    try {
-      await UserChain.findOneAndUpdate(
-        { discordId: interaction.user.id },
-        { $set: { lastChain } },
-        { upsert: true, setDefaultsOnInsert: true },
-      );
-    } catch {}
-
     await sendLoading(interaction, {
       title: "Preparing Checkout",
       description: [
@@ -145,9 +140,43 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       footer: "No order is placed until you confirm.",
     });
 
-    const result = await createOrder({
-      cartCode,
-    });
+    const card = await Card.findOne({
+      isLocked: false,
+      status: "active",
+    }).sort({ isPin: -1 });
+
+    if (!card) {
+      await sendErrorAndLog(
+        interaction,
+        "No Cards Available",
+        "No active cards are available. Please add more cards to the system.",
+        "Action required: Add new cards to restore order processing.",
+        {
+          User: interaction.user.id,
+        },
+      );
+
+      return sendError(interaction, {
+        title: "No Cards Available",
+        description:
+          "No payment methods are currently available. Our team is working on adding more cards. Please try again later.",
+        footer: "Please wait until more cards become available.",
+      });
+    }
+
+    const payCard = {
+      cardNumber: decrypt(card.encryptedCardNumber),
+      cvv: decrypt(card.encryptedCardCvv),
+      expiryDate: card.expiryDate,
+      zipcode: card.zipcode,
+    };
+
+    const result = await createOrder(
+      {
+        cartCode,
+      },
+      payCard,
+    );
 
     if (result.code !== null && result.code !== undefined) {
       if (
@@ -243,6 +272,12 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
           }
         }
       }
+
+      await UserChain.findOneAndUpdate(
+        { discordId: interaction.user.id },
+        { $set: { lastChain } },
+        { upsert: true, setDefaultsOnInsert: true },
+      );
     } catch (error) {
       try {
         await cancelOrder(data.id);
@@ -310,21 +345,10 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
 
       return;
     }
-
     const displayName =
       interaction.member instanceof GuildMember
         ? interaction.member.displayName
         : (interaction.user.globalName ?? interaction.user.username);
-
-    await Order.create({
-      name: displayName,
-      discordUserId: interaction.user.id,
-      checkoutId: data.id,
-      orderId: data.order_id,
-      total: calculatedTotal,
-      confirming: false,
-      expiresAt: formatExpiryDate(data.expires_in),
-    });
 
     await sendLoading(interaction, {
       title: "Preparing Order Ticket",
@@ -337,12 +361,45 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       footer: "Your order will be sent here once confirmed.",
     });
 
-    const ticket = await createOrderTicket(interaction);
+    try {
+      await Order.create({
+        name: displayName,
+        discordUserId: interaction.user.id,
+        checkoutId: data.id,
+        orderId: data.order_id,
+        total: calculatedTotal,
+        confirming: false,
+        expiresAt: formatExpiryDate(data.expires_in),
+        card: card._id,
+      });
 
-    await ticket.send({
-      content: `<@${interaction.user.id}>`,
-    });
+      await Card.findOneAndUpdate(
+        { _id: card._id },
+        { $set: { isLocked: true } },
+      );
+    } catch (error) {
+      try {
+        await cancelOrder(data.id);
+      } catch {}
+      await sendErrorAndLog(
+        interaction,
+        "Failed to Save Order",
+        "Failed to save your order to the database. Please try again later.",
+        "Your order has been cancelled. Please try again later.",
+        error,
+        {
+          "Order ID": String(data.id),
+          User: interaction.user.id,
+        },
+      );
 
+      return sendError(interaction, {
+        title: "Failed to Save Order",
+        description:
+          "Failed to save your order to the database. Please try again later.",
+        footer: "Your order has been cancelled. Please try again later.",
+      });
+    }
     const checkoutData: CheckoutData = {
       id: data.id,
       status: data.status,
@@ -372,6 +429,10 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       expires_in: data.expires_in,
     };
 
+    const ticket = await createOrderTicket(interaction);
+    await ticket.send({
+      content: `<@${interaction.user.id}>`,
+    });
     await ticket.send(
       createCheckoutPanel({
         checkout: checkoutData,
@@ -385,7 +446,28 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       footer: "Your order stays private inside that ticket.",
     });
 
-    return;
+    return setTimeout(
+      async () => {
+        const checkOrder = await Order.findOne({
+          checkoutId: data.id,
+          card: card._id,
+        });
+
+        if (!checkOrder) {
+          await Card.findOneAndUpdate(
+            { _id: card._id },
+            { $set: { isLocked: false } },
+          );
+
+          return await sendError(interaction, {
+            title: "Order Expired",
+            description: "Your order has expired. Please create a new one.",
+            footer: `Orders expire after ${data.expires_in + 20} seconds of inactivity`,
+          });
+        }
+      },
+      secondsToMilliseconds(data.expires_in + 20),
+    );
   } catch (error) {
     await logError(interaction.client, "Order Processing Failed", error, {
       User: interaction.user.id,

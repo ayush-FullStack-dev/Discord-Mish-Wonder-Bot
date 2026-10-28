@@ -14,8 +14,13 @@ import {
   handleInteractionError,
 } from "../../utils/error-handler.js";
 import { deductBalance, getBalance } from "../../services/balance.service.js";
-import { calculateOrderTotal, centsToDollars, dollarsToCents } from "../../utils/util.js";
+import {
+  calculateOrderTotal,
+  centsToDollars,
+  dollarsToCents,
+} from "../../utils/util.js";
 import { logSuccess, logError } from "../../utils/logger.js";
+import { Card } from "../../models/card.model.js";
 
 export async function handleConfirmOrder(interaction: ButtonInteraction) {
   let claimedOrderId: typeof Order.prototype._id | null = null;
@@ -52,7 +57,9 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         returnDocument: "after",
         upsert: false,
       },
-    ).exec();
+    )
+      .populate("card", "_id last4Digits expiryDate status")
+      .exec();
 
     if (!order) {
       await sendError(interaction, {
@@ -65,7 +72,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
       return;
     }
-
     claimedOrderId = order._id;
 
     const balance = await getBalance(discordUserId);
@@ -127,6 +133,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     }
 
     const data = result.data;
+
     const calculatedTotal = calculateOrderTotal({
       subtotal: data.price.subtotal,
       referral: data.price.referral,
@@ -173,6 +180,11 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     );
 
     try {
+      await Card.findOneAndUpdate(
+        { _id: order.card?._id },
+        { $set: { isLocked: false } },
+      );
+
       const updatedOrder = await Order.findOneAndUpdate(
         {
           _id: order._id,
