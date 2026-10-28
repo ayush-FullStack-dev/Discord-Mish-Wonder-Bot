@@ -21,6 +21,10 @@ import { handleConfirmOrder } from "../controllers/order/confirm-order.controlle
 import { sendSuccessAndLog } from "../utils/logger.js";
 import { checkBalance } from "../controllers/balance.controller.js";
 import { handleEarnings } from "../controllers/earnings.controller.js";
+import {
+  handleGetDiscount,
+  handleSetDiscount,
+} from "../controllers/discount.controller.js";
 
 export function registerInteractionHandler(client: Client) {
   client.on(Events.InteractionCreate, async (interaction) => {
@@ -47,6 +51,12 @@ export function registerInteractionHandler(client: Client) {
         }
         if (interaction.commandName === "earnings") {
           await handleEarnings(interaction);
+        }
+        if (interaction.commandName === "set-discount") {
+          await handleSetDiscount(interaction);
+        }
+        if (interaction.commandName === "get-discount") {
+          await handleGetDiscount(interaction);
         }
 
         if (interaction.commandName === "add-card") {

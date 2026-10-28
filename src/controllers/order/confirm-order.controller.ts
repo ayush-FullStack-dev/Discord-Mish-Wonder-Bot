@@ -25,7 +25,6 @@ import {
 } from "../../utils/util.js";
 import { logSuccess, logError, sendErrorAndLog } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
-import { discountPercentage } from "../../constants/constant.js";
 import { decrypt } from "../../utils/encryption.js";
 import { sendLoading } from "../../ui/utils/sendLoading.js";
 
@@ -146,6 +145,24 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     }
     claimedOrderId = order._id;
 
+    if (
+      typeof order.discountPercentage !== "number" ||
+      !Number.isFinite(order.discountPercentage) ||
+      order.discountPercentage < 0 ||
+      order.discountPercentage > 100 ||
+      !Number.isFinite(order.total) ||
+      order.total < 0
+    ) {
+      await sendError(interaction, {
+        title: "Checkout Pricing Unavailable",
+        description:
+          "This pending order does not contain verifiable pricing details. Please create a new checkout or contact support.",
+        footer: "No payment has been taken.",
+        ephemeral: false,
+      });
+      return;
+    }
+
     const balance = await getBalance(discordUserId);
 
     if (balance === null) {
@@ -258,7 +275,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           service: data.price.service,
           delivery: data.price.delivery,
         },
-        discountPercentage,
+        order.discountPercentage,
       );
     } catch (error) {
       const reconciliationError = `Provider confirmed order ${data.order_id}, but its customer price could not be calculated.`;
@@ -286,7 +303,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     const calculatedTotal = discountedPrice.total;
 
-    if (!Number.isFinite(calculatedTotal) || calculatedTotal <= 0) {
+    if (!Number.isFinite(calculatedTotal) || calculatedTotal < 0) {
       const reconciliationError = `Provider confirmed order ${data.order_id}, but its calculated customer total is invalid: $${calculatedTotal}.`;
 
       await logError(
@@ -310,8 +327,9 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       return;
     }
 
-    const orderTotalCents = dollarsToCents(calculatedTotal);
-    if (dollarsToCents(order.total) !== orderTotalCents) {
+    const calculatedTotalCents = dollarsToCents(calculatedTotal);
+    const expectedTotalCents = dollarsToCents(order.total);
+    if (expectedTotalCents !== calculatedTotalCents) {
       const reconciliationError = `Provider-confirmed total for order ${data.order_id} differs from the checkout amount. Checkout: $${order.total.toFixed(2)}, confirmed: $${calculatedTotal.toFixed(2)}.`;
 
       await logError(
@@ -336,6 +354,8 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       return;
     }
 
+    const validatedCustomerTotal = order.total;
+    const orderTotalCents = expectedTotalCents;
     let remainingBalance: bigint | null = null;
     let deductionError: unknown;
 
@@ -358,7 +378,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           User: discordUserId,
           "Checkout ID": checkoutId,
           "Order ID": data.order_id,
-          Total: `$${calculatedTotal.toFixed(2)}`,
+          Total: `$${validatedCustomerTotal.toFixed(2)}`,
         },
       );
       console.error(`[RECONCILIATION REQUIRED] ${reconciliationMessage}`);
@@ -374,7 +394,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         User: discordUserId,
         "Checkout ID": checkoutId,
         "Order ID": data.order_id,
-        Total: `$${calculatedTotal.toFixed(2)}`,
+        Total: `$${validatedCustomerTotal.toFixed(2)}`,
       },
     );
 
@@ -392,7 +412,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
             confirming: false,
             orderId: data.order_id,
             trackingUrl: data.tracking,
-            total: calculatedTotal,
+            total: validatedCustomerTotal,
             expiresAt: null,
           },
         },
@@ -416,7 +436,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
             User: discordUserId,
             "Checkout ID": checkoutId,
             "Order ID": data.order_id,
-            Total: `$${calculatedTotal.toFixed(2)}`,
+            Total: `$${validatedCustomerTotal.toFixed(2)}`,
           },
         );
       }
@@ -435,7 +455,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           User: discordUserId,
           "Checkout ID": checkoutId,
           "Order ID": data.order_id,
-          Total: `$${calculatedTotal.toFixed(2)}`,
+          Total: `$${validatedCustomerTotal.toFixed(2)}`,
         },
       );
     }
@@ -454,7 +474,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     }
 
     const panel = createConfirmedOrderPanel({
-      order: { ...data, total: calculatedTotal },
+      order: { ...data, total: validatedCustomerTotal },
     });
 
     await attemptInteractionResponse(interaction, () =>

@@ -33,10 +33,8 @@ import { requireAdmin } from "../../middleware.js";
 import { logError, sendErrorAndLog } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { decrypt } from "../../utils/encryption.js";
-import {
-  discountPercentage,
-  minimumOrderTotal,
-} from "../../constants/constant.js";
+import { minimumOrderTotal } from "../../constants/constant.js";
+import { getDiscountPercentage } from "../../services/discount.service.js";
 
 const ORDER_ERRORS: Record<
   string,
@@ -172,6 +170,8 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       zipcode: card.zipcode,
     };
 
+    const appliedDiscountPercentage = await getDiscountPercentage();
+
     const result = await createOrder(
       {
         cartCode,
@@ -226,7 +226,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
           service: data.price.service,
           delivery: data.price.delivery,
         },
-        discountPercentage,
+        appliedDiscountPercentage,
       );
     } catch (error) {
       let checkoutCancelled = false;
@@ -327,6 +327,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         checkoutId: data.id,
         orderId: data.order_id,
         total: calculatedTotal,
+        discountPercentage: appliedDiscountPercentage,
         confirming: false,
         expiresAt: formatExpiryDate(data.expires_in),
         card: card._id,

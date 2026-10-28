@@ -30,6 +30,13 @@ const orderSchema = new Schema(
       min: 0,
     },
 
+    discountPercentage: {
+      type: Number,
+      required: true,
+      min: 0,
+      max: 100,
+    },
+
     status: {
       type: String,
       enum: ["pending", "confirmed", "failed", "cancelled", "unknown"],
