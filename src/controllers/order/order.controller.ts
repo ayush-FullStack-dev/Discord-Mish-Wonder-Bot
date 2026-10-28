@@ -278,7 +278,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         footer: "Please cancel this checkout and contact support.",
         ephemeral: false,
       });
-
       return;
     }
     const displayName =
