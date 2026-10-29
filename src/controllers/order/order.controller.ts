@@ -434,8 +434,22 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
             description: "Your order has expired. Please create a new one.",
             footer: `Orders expire after ${data.expires_in + 20} seconds of inactivity`,
           });
+        } else if (checkOrder.status === "pending") {
+          await Order.findByIdAndDelete(checkOrder._id);
+
+          await Card.findOneAndUpdate(
+            { _id: card._id },
+            { $set: { isLocked: false } },
+          );
+
+          return await sendError(interaction, {
+            title: "Order Expired",
+            description: "Your order has expired. Please create a new one.",
+            footer: `Orders expire after ${data.expires_in + 20} seconds of inactivity`,
+          });
         }
       },
+
       secondsToMilliseconds(data.expires_in + 20),
     );
   } catch (error) {

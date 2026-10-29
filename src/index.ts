@@ -8,6 +8,7 @@ import {
   logApplicationError,
   registerGlobalErrorHandlers,
 } from "./utils/error-handler.js";
+import { startExpireOrdersJob } from "./jobs/expireOrders.job.js";
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
@@ -38,6 +39,8 @@ client.on("error", (error) => {
 async function main() {
   await connectDatabase();
   success("Database connection established.");
+
+  startExpireOrdersJob();
   await client.login(env.discordToken);
 }
 
