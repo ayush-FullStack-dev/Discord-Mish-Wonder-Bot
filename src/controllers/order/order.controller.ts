@@ -342,6 +342,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         confirming: false,
         expiresAt: formatExpiryDate(data.expires_in),
         card: card._id,
+        cost: data.price.total
       });
 
       await Card.findOneAndUpdate(

@@ -30,6 +30,12 @@ const orderSchema = new Schema(
       min: 0,
     },
 
+    cost: {
+      type: Number,
+      required: true,
+      default: 0,
+    },
+
     discountPercentage: {
       type: Number,
       required: true,

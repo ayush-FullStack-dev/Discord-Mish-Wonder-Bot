@@ -411,6 +411,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
             status: "confirmed",
             confirming: false,
             orderId: data.order_id,
+            cost: data.price.total,
             trackingUrl: data.tracking,
             total: validatedCustomerTotal,
             expiresAt: null,
