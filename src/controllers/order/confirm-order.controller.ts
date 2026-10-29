@@ -502,7 +502,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     try {
       await UserChain.findOneAndUpdate(
         { discordId: null },
-        { $set: { discordId: interaction.user.id } },
+        { discordId: interaction.user.id },
         { sort: { createdAt: -1 } },
       );
     } catch {}
