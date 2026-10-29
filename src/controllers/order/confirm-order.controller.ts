@@ -199,6 +199,11 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     const result = await confirmOrder(checkoutId);
 
     if (result.data?.code === "FORTER_DECLINE" && result.data?.retryable) {
+      await Card.findByIdAndUpdate(order.card?._id, {
+        isLocked: false,
+        status: "blocked",
+      });
+
       const card = await Card.findOne({
         isLocked: false,
         status: "active",
