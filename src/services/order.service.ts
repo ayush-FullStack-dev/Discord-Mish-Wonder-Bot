@@ -88,7 +88,6 @@ export async function createOrder(
       data,
     };
   } catch (error: unknown) {
-    console.log(error)
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       const apiError: unknown = error.response?.data;

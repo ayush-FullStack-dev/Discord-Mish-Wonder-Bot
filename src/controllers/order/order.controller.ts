@@ -32,6 +32,7 @@ import {
   maxOrderAmount,
 } from "../../constants/constant.js";
 import { getDiscountPercentage } from "../../services/discount.service.js";
+import { sendOrderExpired } from "../../ui/order/sendOrderExpired.js";
 
 const ORDER_ERRORS: Record<
   string,
@@ -429,10 +430,9 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
             { $set: { isLocked: false } },
           );
 
-          return await sendError(interaction, {
-            title: "Order Expired",
-            description: "Your order has expired. Please create a new one.",
-            footer: `Orders expire after ${data.expires_in + 20} seconds of inactivity`,
+          return await sendOrderExpired({
+            ticket,
+            expiresIn: data.expires_in,
           });
         } else if (checkOrder.status === "pending") {
           await Order.findByIdAndDelete(checkOrder._id);
@@ -442,10 +442,9 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
             { $set: { isLocked: false } },
           );
 
-          return await sendError(interaction, {
-            title: "Order Expired",
-            description: "Your order has expired. Please create a new one.",
-            footer: `Orders expire after ${data.expires_in + 20} seconds of inactivity`,
+          return await sendOrderExpired({
+            ticket,
+            expiresIn: data.expires_in,
           });
         }
       },
