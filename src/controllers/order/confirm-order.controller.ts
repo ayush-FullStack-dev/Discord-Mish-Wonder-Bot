@@ -23,7 +23,7 @@ import {
   centsToDollars,
   dollarsToCents,
 } from "../../utils/util.js";
-import { logSuccess, logError, sendErrorAndLog } from "../../utils/logger.js";
+import { logSuccess, logError } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { decrypt } from "../../utils/encryption.js";
 import { sendLoading } from "../../ui/utils/sendLoading.js";
@@ -36,6 +36,13 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
       .lean();
 
     let lastChain = oldChain?.lastChain || "1";
+
+    const chainAccounts = await UserChain.countDocuments({ lastChain });
+
+    if (chainAccounts > 8) {
+      const parsedChain = Number(lastChain);
+      lastChain = String(Number.isFinite(parsedChain) ? parsedChain + 1 : 2);
+    }
 
     const account = await accountConfigure({ count: 1, chain: lastChain });
 

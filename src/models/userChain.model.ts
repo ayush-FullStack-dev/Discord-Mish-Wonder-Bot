@@ -4,8 +4,7 @@ const userChainSchema = new Schema(
   {
     discordId: {
       type: String,
-      default: null,
-      index: true,
+      default: null
     },
     lastChain: {
       type: String,
