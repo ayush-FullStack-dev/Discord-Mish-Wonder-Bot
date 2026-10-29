@@ -36,43 +36,44 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
       .lean();
 
     let lastChain = oldChain?.lastChain || "1";
+    let count = 1;
 
-    const chainAccounts = await UserChain.countDocuments({ lastChain });
+    if (oldChain) {
+      const chainAccounts = await UserChain.countDocuments({ lastChain });
 
-    if (chainAccounts > 8) {
-      const parsedChain = Number(lastChain);
-      lastChain = String(Number.isFinite(parsedChain) ? parsedChain + 1 : 2);
+      if (chainAccounts >= 40) {
+        const parsedChain = Number(lastChain);
+        lastChain = String(Number.isFinite(parsedChain) ? parsedChain + 1 : 2);
+        count = 3;
+      }
     }
 
-    const account = await accountConfigure({ count: 1, chain: lastChain });
+    const account = await accountConfigure({
+      count,
+      chain: lastChain,
+    });
 
     if (!account.ok) {
-      throw new Error("Failed to create account Please try again later");
+      throw new Error("Failed to create account. Please try again later.");
     }
 
     if (account.state === "queued") {
       let accountStatus = await getJobStatus(account.job);
 
-      if (!accountStatus.ok && !accountStatus.retryable) {
-        throw new Error(
-          "Failed to fetch account status Please try again later",
-        );
-      }
-
       while (!accountStatus.done) {
+        if (!accountStatus.ok) {
+          throw new Error("Failed to fetch account status.");
+        }
+
         await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
         accountStatus = await getJobStatus(account.job);
-
-        if (!accountStatus.ok) {
-          throw new Error(
-            "Failed to fetch account status Please try again later",
-          );
-        }
       }
     }
 
     await UserChain.create({ lastChain });
   } catch (error) {
+    console.error("Account creation failed:", error);
+
     await logError(interaction.client, "Account Creation Failed", error, {
       User: interaction.user.id,
       Action: "Create Next Account",
