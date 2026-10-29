@@ -66,17 +66,11 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
 
     await UserChain.create({ lastChain });
   } catch (error) {
-    await sendErrorAndLog(
-      interaction,
-      "Account Creation Failed",
-      "Failed to create the next account.",
-      "Security Log • Account Creation",
-      error,
-      {
-        Action: "Create Next Account",
-        Status: "Failed",
-      },
-    );
+    await logError(interaction.client, "Account Creation Failed", error, {
+      User: interaction.user.id,
+      Action: "Create Next Account",
+      Status: "Failed",
+    });
   }
 }
 

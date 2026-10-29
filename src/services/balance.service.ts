@@ -40,7 +40,8 @@ export async function deductBalance(
       cents: { $gte: cents },
     },
     {
-      $inc: { cents: -cents, updated_at: new Date() },
+      $inc: { cents: -cents },
+      $set: { updated_at: new Date() },
     },
     {
       returnDocument: "after",

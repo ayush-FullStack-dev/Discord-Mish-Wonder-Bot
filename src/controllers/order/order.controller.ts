@@ -287,21 +287,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
           footer: `Minimum order total: $${minimumOrderSubTotal}.`,
         });
       }
-    } else if (calculatedTotal > Number(dollarBalance)) {
-      const additionalFunds = (calculatedTotal - Number(dollarBalance)).toFixed(
-        2,
-      );
-
-      try {
-        await cancelOrder(data.id);
-      } catch {
-      } finally {
-        return sendError(interaction, {
-          title: "Insufficient Balance",
-          description: `You need an additional $${additionalFunds} to complete this checkout.`,
-          footer: "Please deposit more funds and try again.",
-        });
-      }
     } else if (calculatedTotal > maxOrderAmount) {
       try {
         await cancelOrder(data.id);
@@ -342,7 +327,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         confirming: false,
         expiresAt: formatExpiryDate(data.expires_in),
         card: card._id,
-        cost: data.price.total
+        cost: data.price.total,
       });
 
       await Card.findOneAndUpdate(
