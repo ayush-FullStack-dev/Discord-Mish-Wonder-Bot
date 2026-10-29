@@ -404,7 +404,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     await ticket.send({
       content: `<@${interaction.user.id}>`,
     });
-    await ticket.send(
+    const checkoutMessage = await ticket.send(
       createCheckoutPanel({
         checkout: checkoutData,
         userId: interaction.user.id,
@@ -430,8 +430,8 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
             { $set: { isLocked: false } },
           );
 
-          return await sendOrderExpired({
-            ticket,
+          await sendOrderExpired({
+            replyTo: checkoutMessage,
             expiresIn: data.expires_in,
           });
         } else if (checkOrder.status === "pending") {
@@ -442,14 +442,14 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
             { $set: { isLocked: false } },
           );
 
-          return await sendOrderExpired({
-            ticket,
+          await sendOrderExpired({
+            replyTo: checkoutMessage,
             expiresIn: data.expires_in,
           });
         }
       },
 
-      secondsToMilliseconds(data.expires_in + 20),
+      secondsToMilliseconds(data.expires_in + 10),
     );
   } catch (error) {
     await logError(interaction.client, "Order Processing Failed", error, {

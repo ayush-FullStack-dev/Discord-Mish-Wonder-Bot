@@ -4,16 +4,16 @@ import {
   SeparatorBuilder,
   SeparatorSpacingSize,
   MessageFlags,
-  type TextChannel,
+  type Message,
 } from "discord.js";
 
 type SendOrderExpiredOptions = {
-  ticket: TextChannel;
+  replyTo: Message;
   expiresIn: number;
 };
 
 export async function sendOrderExpired({
-  ticket,
+  replyTo,
   expiresIn,
 }: SendOrderExpiredOptions) {
   const container = new ContainerBuilder()
@@ -44,7 +44,7 @@ export async function sendOrderExpired({
       ),
     );
 
-  return ticket.send({
+  return replyTo.reply({
     components: [container],
     flags: MessageFlags.IsComponentsV2,
   });
