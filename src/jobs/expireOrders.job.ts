@@ -5,13 +5,14 @@ import { Card } from "../models/card.model.js";
 export function startExpireOrdersJob() {
   cron.schedule("*/5 * * * *", async () => {
     try {
+      const now = new Date();
+
       const expiredOrders = await Order.find({
         status: "pending",
-        expiresAt: { $lte: new Date() },
+        expiresAt: { $lte: now },
         confirming: { $ne: true },
       })
         .select("_id card")
-        .populate("card", "_id")
         .lean();
 
       if (!expiredOrders.length) return;
@@ -20,7 +21,7 @@ export function startExpireOrdersJob() {
       const cardIds = [
         ...new Set(
           expiredOrders
-            .map((order) => order.card?._id?.toString())
+            .map((order) => order.card?.toString())
             .filter((id): id is string => Boolean(id)),
         ),
       ];
@@ -47,10 +48,7 @@ export function startExpireOrdersJob() {
 
       if (unlockCardIds.length) {
         await Card.updateMany(
-          {
-            _id: { $in: unlockCardIds },
-            isLocked: true,
-          },
+          { _id: { $in: unlockCardIds }, isLocked: true },
           { $set: { isLocked: false } },
         );
       }
