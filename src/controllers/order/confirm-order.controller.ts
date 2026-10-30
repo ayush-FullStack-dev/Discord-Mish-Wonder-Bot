@@ -44,7 +44,7 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
 
       if (chainAccounts >= env.maxChainAccounts) {
         const parsedChain = Number(lastChain);
-        lastChain = String(Number.isFinite(parsedChain) ? parsedChain + 1 : 2);
+        lastChain = String(Number.isFinite(parsedChain) ? parsedChain + 1 : 1);
         count = 3;
       }
     }
@@ -72,6 +72,18 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
     }
 
     await UserChain.create({ lastChain });
+
+    if (count === 3) {
+      await logSuccess(
+        interaction.client,
+        "New Chain Created",
+        `A new account chain (${lastChain}) was created with ${count} accounts.`,
+        {
+          "Chain ID": lastChain,
+          "Accounts Created": String(count),
+        },
+      );
+    }
   } catch (error) {
     console.error("Account creation failed:", error);
 
