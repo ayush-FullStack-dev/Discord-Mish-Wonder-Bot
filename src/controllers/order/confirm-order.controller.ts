@@ -27,6 +27,7 @@ import { logSuccess, logError } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { decrypt } from "../../utils/encryption.js";
 import { sendLoading } from "../../ui/utils/sendLoading.js";
+import { env } from "../../config/env.js";
 
 async function handleCreateAccount(interaction: ButtonInteraction) {
   try {
@@ -41,7 +42,7 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
     if (oldChain) {
       const chainAccounts = await UserChain.countDocuments({ lastChain });
 
-      if (chainAccounts >= 40) {
+      if (chainAccounts >= env.maxChainAccounts) {
         const parsedChain = Number(lastChain);
         lastChain = String(Number.isFinite(parsedChain) ? parsedChain + 1 : 2);
         count = 3;
