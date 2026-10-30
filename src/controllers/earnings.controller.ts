@@ -16,6 +16,7 @@ export async function handleEarnings(
 
   try {
     if (!(await requireAdmin(interaction))) return;
+
     await interaction.deferReply({
       flags: MessageFlags.Ephemeral,
     });
@@ -57,11 +58,16 @@ export async function handleEarnings(
       createdAt: { $gte: start, $lte: now },
       status: "confirmed",
     })
-      .select("total")
+      .select("total cost")
       .lean();
 
     const totalOrders = orders.length;
-    const totalAmount = orders.reduce((sum, order) => sum + order.total, 0);
+
+    const totalSales = orders.reduce((sum, order) => sum + order.total, 0);
+    const totalProfit = orders.reduce(
+      (sum, order) => sum + order.total - order.cost,
+      0,
+    );
 
     const periodLabels: Record<string, string> = {
       day: "Today",
@@ -82,7 +88,8 @@ export async function handleEarnings(
         new TextDisplayBuilder().setContent(
           [
             `**Total Orders**\n${totalOrders.toLocaleString("en-US")}`,
-            `**Total Amount**\n$${totalAmount.toFixed(2)}`,
+            `**Total Sales**\n$${totalSales.toFixed(2)}`,
+            `**Total Profit**\n$${totalProfit.toFixed(2)}`,
           ].join("\n\n"),
         ),
       )
