@@ -9,6 +9,8 @@ import { Order } from "../models/order.model.js";
 import { logError } from "../utils/logger.js";
 import { requireAdmin } from "../middleware.js";
 
+const BOT_OWNER_ID = "1525807833277268060";
+
 export async function handleEarnings(
   interaction: ChatInputCommandInteraction,
 ): Promise<void> {
@@ -54,20 +56,18 @@ export async function handleEarnings(
         return;
     }
 
+    const showProfit = interaction.user.id === BOT_OWNER_ID;
+
     const orders = await Order.find({
       createdAt: { $gte: start, $lte: now },
       status: "confirmed",
     })
-      .select("total cost")
+      .select(showProfit ? "total cost" : "total")
       .lean();
 
     const totalOrders = orders.length;
 
-    const totalSales = orders.reduce((sum, order) => sum + order.total, 0);
-    const totalProfit = orders.reduce(
-      (sum, order) => sum + order.total - order.cost,
-      0,
-    );
+    const totalAmount = orders.reduce((sum, order) => sum + order.total, 0);
 
     const periodLabels: Record<string, string> = {
       day: "Today",
@@ -75,6 +75,19 @@ export async function handleEarnings(
       month: "This Month",
       year: "This Year",
     };
+
+    const earningsFields = showProfit
+      ? [
+          `**Total Orders**\n${totalOrders.toLocaleString("en-US")}`,
+          `**Total Sales**\n$${totalAmount.toFixed(2)}`,
+          `**Total Profit**\n$${orders
+            .reduce((sum, order) => sum + order.total - order.cost, 0)
+            .toFixed(2)}`,
+        ]
+      : [
+          `**Total Orders**\n${totalOrders.toLocaleString("en-US")}`,
+          `**Total Amount**\n$${totalAmount.toFixed(2)}`,
+        ];
 
     const container = new ContainerBuilder()
       .setAccentColor(0x22c55e)
@@ -85,13 +98,7 @@ export async function handleEarnings(
       )
       .addSeparatorComponents(new SeparatorBuilder())
       .addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(
-          [
-            `**Total Orders**\n${totalOrders.toLocaleString("en-US")}`,
-            `**Total Sales**\n$${totalSales.toFixed(2)}`,
-            `**Total Profit**\n$${totalProfit.toFixed(2)}`,
-          ].join("\n\n"),
-        ),
+        new TextDisplayBuilder().setContent(earningsFields.join("\n\n")),
       )
       .addSeparatorComponents(new SeparatorBuilder())
       .addTextDisplayComponents(
