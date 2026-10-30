@@ -406,15 +406,21 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     await logSuccess(
       interaction.client,
-      "Order Confirmed",
-      remainingBalance === null
-        ? "Order confirmed; wallet deduction requires reconciliation."
-        : "Order confirmed and wallet balance deducted.",
+      "Order Completed Successfully",
+      [
+        "**The order has been successfully completed.**",
+        "",
+        data.tracking
+          ? `[View Live Order Tracking →](${data.tracking})`
+          : "Tracking information is currently unavailable.",
+      ].join("\n"),
       {
-        User: discordUserId,
+        Customer: discordUserId,
         "Checkout ID": checkoutId,
-        "Order ID": data.order_id,
-        Total: `$${validatedCustomerTotal.toFixed(2)}`,
+        "Payment Status":
+          remainingBalance === null
+            ? "Reconciliation Required"
+            : "Successfully Deducted",
       },
     );
 
