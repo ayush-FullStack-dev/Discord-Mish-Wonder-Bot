@@ -13,6 +13,7 @@ import { EmbedBuilder } from "discord.js";
 import { env } from "../config/env.js";
 import { sendSuccess } from "../ui/utils/sendSuccess.js";
 import { sendError } from "../ui/utils/sendError.js";
+import { PING_ROLESID } from "../constants/constant.js";
 
 type LogOptions = {
   title: string;
@@ -25,6 +26,7 @@ async function sendLog(
   client: Client,
   channelId: string,
   options: LogOptions,
+  pingRole = false,
 ): Promise<void> {
   try {
     const channel = await client.channels.fetch(channelId);
@@ -55,7 +57,18 @@ async function sendLog(
       });
     }
 
-    await channel.send({ embeds: [embed] });
+    const roleIds = pingRole ? PING_ROLESID : [];
+
+    await channel.send({
+      ...(roleIds.length > 0
+        ? { content: roleIds.map((id) => `<@&${id}>`).join(" ") }
+        : {}),
+      embeds: [embed],
+      allowedMentions: {
+        parse: [],
+        roles: roleIds,
+      },
+    });
   } catch (error) {
     console.error("Failed to send Discord log:", error);
   }
@@ -148,12 +161,17 @@ export async function logError(
 ): Promise<void> {
   const message = error instanceof Error ? error.message : String(error);
 
-  await sendLog(client, env.errorChannelId, {
-    title: `<:alert:1563650830505349241> ${title}`,
-    description: message.slice(0, 4000) || "An unknown error occurred.",
-    color: 0xef4444,
-    ...(details ? { details } : {}),
-  });
+  await sendLog(
+    client,
+    env.errorChannelId,
+    {
+      title: `<:alert:1563650830505349241> ${title}`,
+      description: message.slice(0, 4000) || "An unknown error occurred.",
+      color: 0xef4444,
+      ...(details ? { details } : {}),
+    },
+    true,
+  );
 }
 
 export async function sendSuccessAndLog(
