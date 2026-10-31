@@ -17,7 +17,6 @@ import type { CheckoutData } from "../../ui/order/createCheckoutPanel.js";
 import { Order } from "../../models/order.model.js";
 import {
   calculateDiscountedOrderPrice,
-  centsToDollars,
   formatExpiryDate,
   secondsToMilliseconds,
 } from "../../utils/util.js";
@@ -83,6 +82,22 @@ const ORDER_ERRORS: Record<
   },
 };
 
+type ICardDocument = {
+  encryptedCardNumber: string;
+  encryptedCardCvv: string;
+  expiryDate: string;
+  zipcode: string;
+};
+
+function getDecryptedCard(card: ICardDocument) {
+  return {
+    cardNumber: decrypt(card.encryptedCardNumber),
+    cvv: decrypt(card.encryptedCardCvv),
+    expiryDate: card.expiryDate,
+    zipcode: card.zipcode,
+  };
+}
+
 export async function handleOrderModal(interaction: ModalSubmitInteraction) {
   let reservedCardId: typeof Card.prototype._id | null = null;
   let keepCardLocked = false;
@@ -107,13 +122,10 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       });
     }
 
-    const dollarBalance = centsToDollars(balance);
-
     const pendingOrder = await Order.countDocuments({
       discordUserId: interaction.user.id,
       status: "pending",
     });
-
     if (pendingOrder >= 2) {
       await sendError(interaction, {
         title: "Pending Order Limit Reached",
@@ -138,7 +150,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       footer: "No order is placed until you confirm.",
     });
 
-    const card = await Card.findOneAndUpdate(
+    let card = await Card.findOneAndUpdate(
       {
         isLocked: false,
         reconciliationCheckoutId: null,
@@ -176,21 +188,46 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     }
     reservedCardId = card._id;
 
-    const payCard = {
-      cardNumber: decrypt(card.encryptedCardNumber),
-      cvv: decrypt(card.encryptedCardCvv),
-      expiryDate: card.expiryDate,
-      zipcode: card.zipcode,
-    };
-
+    const payCard = getDecryptedCard(card);
     const appliedDiscountPercentage = await getDiscountPercentage();
-
     const result = await createOrder(
       {
         cartCode,
       },
       payCard,
     );
+
+    if (result.code === "CARD_ISSUE") {
+      await Card.findByIdAndUpdate(card._id, {
+        $set: {
+          isLocked: false,
+          reconciliationCheckoutId: null,
+          status: "inactive",
+        },
+      });
+
+      await sendError(interaction, {
+        title: "Order Failed",
+        description:
+          "We couldn't process your order due to a payment issue. Please try again or contact an admin for assistance.",
+        footer: "Contact an admin if the issue persists.",
+      });
+
+      await logError(
+        interaction.client,
+        "Payment Card Rejected by Issuer",
+        result.message,
+        {
+          "Card ID": String(card._id),
+          "Card Last 4": card.last4Digits ?? "Unavailable",
+          User: interaction.user.id,
+          "Error Code": result.code,
+          Status: "Inactive",
+        },
+      );
+
+      return;
+    }
 
     if (result.code !== null && result.code !== undefined) {
       if (
@@ -503,15 +540,10 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       try {
         await releaseCardLockIfUnused(reservedCardId);
       } catch (error) {
-        await logError(
-          interaction.client,
-          "Card Unlock Failed",
-          error,
-          {
-            User: interaction.user.id,
-            "Card ID": String(reservedCardId),
-          },
-        );
+        await logError(interaction.client, "Card Unlock Failed", error, {
+          User: interaction.user.id,
+          "Card ID": String(reservedCardId),
+        });
       }
     }
   }
@@ -560,7 +592,7 @@ export async function handleCloseOrder(
     });
   }
 }
-export async function handleDeleteAllOrders(
+export async function handleCloseAllOrders(
   interaction: ChatInputCommandInteraction,
 ) {
   if (!(await requireAdmin(interaction))) return;

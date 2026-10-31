@@ -2,7 +2,7 @@ import { Events, type Client } from "discord.js";
 import { createOrderModal } from "../ui/order/order-modal.js";
 import {
   handleCloseOrder,
-  handleDeleteAllOrders,
+  handleCloseAllOrders,
   handleOrderModal,
 } from "../controllers/order/order.controller.js";
 import { postShopPanel } from "../controllers/post-shop.controller.js";
@@ -47,7 +47,7 @@ export function registerInteractionHandler(client: Client) {
           await handleCloseOrder(interaction);
         }
         if (interaction.commandName === "close-all-orders") {
-          await handleDeleteAllOrders(interaction);
+          await handleCloseAllOrders(interaction);
         }
         if (interaction.commandName === "earnings") {
           await handleEarnings(interaction);

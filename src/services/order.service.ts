@@ -125,6 +125,18 @@ export async function createOrder(
         };
       }
 
+      if (
+        apiCode === "CHECKOUT_FAILED" &&
+        apiMessage?.includes("SAVING_CREDIT_CARD_FAILED") &&
+        apiMessage.includes("Pick Up Card")
+      ) {
+        return {
+          code: "CARD_ISSUE",
+          message:
+            "Your payment card was rejected by the issuing bank. Please contact your bank for assistance or use another valid payment method.",
+        };
+      }
+
       if (status === 429 || apiCode === "RATE_LIMITED") {
         return {
           code: "RATE_LIMITED",
