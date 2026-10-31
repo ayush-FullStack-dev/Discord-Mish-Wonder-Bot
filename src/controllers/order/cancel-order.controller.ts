@@ -11,7 +11,7 @@ import { deleteOrderTicket } from "../../helpers/deleteOrderTicket.js";
 import { logSuccess, logError } from "../../utils/logger.js";
 import { randomUUID } from "node:crypto";
 import { releaseCardLockIfUnused } from "../../services/card.service.js";
-import { createPendingOrderClaimFilter } from "../../services/order-confirmation-state.js";
+import { createPendingOrderClaimFilter } from "../../services/order-confirmation.service.js";
 
 export async function handleCancelOrder(interaction: ButtonInteraction) {
   let claimedOrderId: typeof Order.prototype._id | null = null;
@@ -75,11 +75,7 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
 
     const order = checkoutExpiry
       ? await Order.findOneAndUpdate(
-          createPendingOrderClaimFilter(
-            checkoutId,
-            discordUserId,
-            new Date(),
-          ),
+          createPendingOrderClaimFilter(checkoutId, discordUserId, new Date()),
           {
             $set: {
               confirming: true,

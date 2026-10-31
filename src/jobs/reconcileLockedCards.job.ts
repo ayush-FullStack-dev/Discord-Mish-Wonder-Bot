@@ -6,7 +6,7 @@ import { WalletDeduction } from "../models/walletDeduction.model.js";
 import { logError } from "../utils/logger.js";
 import { dollarsToCents } from "../utils/util.js";
 import { releaseCardLockIfUnused } from "../services/card.service.js";
-import { getStaleConfirmationAction } from "../services/order-confirmation-state.js";
+import { getStaleConfirmationAction } from "../services/order-confirmation.service.js";
 import { walletDeductionMatches } from "../services/balance.service.js";
 
 const STALE_CONFIRMATION_MS = 60_000;
@@ -169,15 +169,10 @@ async function reconcileRecordedWalletDeductions(
         );
       }
     } catch (error) {
-      await logError(
-        client,
-        "Wallet Payment Reconciliation Failed",
-        error,
-        {
-          User: order.discordUserId,
-          "Checkout ID": order.checkoutId,
-        },
-      );
+      await logError(client, "Wallet Payment Reconciliation Failed", error, {
+        User: order.discordUserId,
+        "Checkout ID": order.checkoutId,
+      });
     }
   }
 }

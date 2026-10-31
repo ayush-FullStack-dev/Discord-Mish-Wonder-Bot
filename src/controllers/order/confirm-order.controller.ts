@@ -7,6 +7,7 @@ import {
 import { randomUUID } from "node:crypto";
 import {
   accountConfigure,
+  createAccountsOnChain,
   getJobStatus,
 } from "../../services/account.service.js";
 import { UserChain } from "../../models/userChain.model.js";
@@ -33,9 +34,10 @@ import { releaseCardLockIfUnused } from "../../services/card.service.js";
 import {
   classifyProviderConfirmation,
   createPendingOrderClaimFilter,
-} from "../../services/order-confirmation-state.js";
+} from "../../services/order-confirmation.service.js";
 import { sendLoading } from "../../ui/utils/sendLoading.js";
 import { env } from "../../config/env.js";
+import { minChainAccountCount } from "../../constants/constant.js";
 
 async function handleCreateAccount(interaction: ButtonInteraction) {
   try {
@@ -53,30 +55,17 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
       if (chainAccounts >= env.maxChainAccounts) {
         const parsedChain = Number(lastChain);
         lastChain = String(Number.isFinite(parsedChain) ? parsedChain + 1 : 1);
-        count = 3;
+        count = minChainAccountCount;
       }
     }
 
-    const account = await accountConfigure({
-      count,
+    const result = await createAccountsOnChain({
       chain: lastChain,
+      count,
     });
 
-    if (!account.ok) {
-      throw new Error("Failed to create account. Please try again later.");
-    }
-
-    if (account.state === "queued") {
-      let accountStatus = await getJobStatus(account.job);
-
-      while (!accountStatus.done) {
-        if (!accountStatus.ok) {
-          throw new Error("Failed to fetch account status.");
-        }
-
-        await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
-        accountStatus = await getJobStatus(account.job);
-      }
+    if (!result.ok) {
+      throw new Error(result.error);
     }
 
     await UserChain.create({ lastChain });
@@ -103,6 +92,7 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
   }
 }
 
+// handleCreateAccount()
 export async function handleConfirmOrder(interaction: ButtonInteraction) {
   let claimedOrderId: typeof Order.prototype._id | null = null;
   let claimedOrderExpiresAt: Date | null = null;

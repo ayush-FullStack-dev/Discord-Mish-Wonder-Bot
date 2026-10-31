@@ -8,3 +8,4 @@ export const ADMIN_USERID = [
 
 export const minimumOrderSubTotal = env.minimumOrderSubTotal;
 export const maxOrderAmount = env.maxOrderAmount;
+export const minChainAccountCount = 3;

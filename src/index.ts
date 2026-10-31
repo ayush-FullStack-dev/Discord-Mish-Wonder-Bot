@@ -10,6 +10,7 @@ import {
 } from "./utils/error-handler.js";
 import { startExpireOrdersJob } from "./jobs/expireOrders.job.js";
 import { startReconcileLockedCardsJob } from "./jobs/reconcileLockedCards.job.js";
+import { accountProvisioning } from "./jobs/accountProvisioning.cron.js";
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
@@ -43,6 +44,7 @@ async function main() {
 
   startExpireOrdersJob();
   startReconcileLockedCardsJob(client);
+  accountProvisioning();
   await client.login(env.discordToken);
 }
 
