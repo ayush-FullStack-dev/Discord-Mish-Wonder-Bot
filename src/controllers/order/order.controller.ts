@@ -201,7 +201,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       await Card.findByIdAndUpdate(card._id, {
         $set: {
           isLocked: false,
-          reconciliationCheckoutId: null,
           status: "inactive",
         },
       });
@@ -218,7 +217,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         "Payment Card Rejected by Issuer",
         result.message,
         {
-          "Card ID": String(card._id),
           "Card Last 4": card.last4Digits ?? "Unavailable",
           User: interaction.user.id,
           "Error Code": result.code,
@@ -230,6 +228,8 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     }
 
     if (result.code !== null && result.code !== undefined) {
+      await releaseCardLockIfUnused(card._id);
+
       if (
         [
           "NO_CARD",
@@ -263,6 +263,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     }
 
     if (!("data" in result)) {
+      await releaseCardLockIfUnused(card._id);
       throw new Error("Checkout response did not contain data.");
     }
 
@@ -306,6 +307,8 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         );
       }
 
+      await releaseCardLockIfUnused(card._id);
+
       await sendErrorAndLog(
         interaction,
         "Invalid Order Pricing",
@@ -333,6 +336,8 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         await cancelOrder(data.id);
       } catch {
       } finally {
+        await releaseCardLockIfUnused(card._id);
+
         return sendError(interaction, {
           title: "Minimum Order Not Met",
           description: `Your order total must be at least $${minimumOrderSubTotal}. Add another $${remainingAmount} to meet the minimum order requirement.`,
@@ -344,6 +349,8 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         await cancelOrder(data.id);
       } catch {
       } finally {
+        await releaseCardLockIfUnused(card._id);
+
         return sendError(interaction, {
           title: "Order Total Exceeds Limit",
           description: `The total amount of your order exceeds the maximum allowed limit of $${maxOrderAmount}.`,
@@ -450,8 +457,9 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
           User: interaction.user.id,
         },
       );
-      return;
+      return await releaseCardLockIfUnused(card._id);
     }
+
     const checkoutData: CheckoutData = {
       id: data.id,
       status: data.status,

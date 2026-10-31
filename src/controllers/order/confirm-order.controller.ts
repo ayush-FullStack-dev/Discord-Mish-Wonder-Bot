@@ -34,6 +34,7 @@ import { releaseCardLockIfUnused } from "../../services/card.service.js";
 import {
   classifyProviderConfirmation,
   createPendingOrderClaimFilter,
+  getProviderConfirmationDetails,
 } from "../../services/order-confirmation.service.js";
 import { sendLoading } from "../../ui/utils/sendLoading.js";
 import { env } from "../../config/env.js";
@@ -222,7 +223,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       return;
     }
 
-    const requestStarted = await Order.updateOne(
+    const requestStarted = await Order.findOneAndUpdate(
       {
         _id: order._id,
         status: "pending",
@@ -238,7 +239,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       },
     );
 
-    if (requestStarted.matchedCount !== 1) {
+    if (!requestStarted) {
       throw new Error(
         "The confirmation lock was lost before provider request.",
       );
@@ -247,82 +248,112 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     providerRequestStarted = true;
     const result = await confirmOrder(checkoutId);
     const providerData =
-      result.ok && typeof result.data === "object" && result.data !== null
+      typeof result.data === "object" &&
+      result.data !== null &&
+      !Array.isArray(result.data)
         ? (result.data as Record<string, unknown>)
         : {};
+    const providerDetails = getProviderConfirmationDetails(result.data);
     const providerOutcome = classifyProviderConfirmation(
       result.ok,
-      providerData,
+      result.data,
     );
     const providerOrderId =
-      typeof providerData.order_id === "string" ? providerData.order_id : null;
+      typeof providerData.order_id === "string" &&
+      providerData.order_id.trim().length > 0
+        ? providerData.order_id
+        : null;
 
     const orderReference = providerOrderId ?? checkoutId;
 
     if (providerOutcome === "declined") {
-      let cardBlocked = false;
+      const declinedCardStatus =
+        providerDetails.code === "FORTER_DECLINE" ? "blocked" : "inactive";
+      let declinedCardUpdated = false;
+      let cardUpdateError: unknown;
       try {
         if (order.card?._id) {
-          await Card.updateOne(
-            { _id: order.card._id },
-            { $set: { status: "blocked" } },
-          );
-          cardBlocked = true;
+          await Card.findByIdAndUpdate(order.card._id, {
+            $set: {
+              status: declinedCardStatus,
+              isLocked: false,
+            },
+          });
+
+          declinedCardUpdated = true;
         }
       } catch (error) {
-        await logError(interaction.client, "Card Block Failed", error, {
-          User: discordUserId,
-          "Checkout ID": checkoutId,
-        });
+        cardUpdateError = error;
       }
 
-      const declinedOrder = await Order.findOneAndUpdate(
-        {
-          _id: order._id,
-          status: "pending",
-          confirming: true,
-          confirmationToken,
-        },
-        {
-          $set: {
-            status: order.card?._id && !cardBlocked ? "unknown" : "failed",
-            confirming: false,
-            confirmationState:
-              order.card?._id && !cardBlocked ? "unknown" : null,
-            confirmationToken: null,
-            confirmationStartedAt: null,
-            confirmationExpiresAt: null,
-            expiresAt: null,
+      let declinedOrderUpdated = false;
+      try {
+        const declinedOrder = await Order.updateOne(
+          {
+            _id: order._id,
+            discordUserId,
+            status: "pending",
+            confirming: true,
+            confirmationToken,
           },
-        },
-        { returnDocument: "after", upsert: false },
-      ).exec();
-
-      if (declinedOrder && cardBlocked) {
-        try {
-          await releaseCardLockIfUnused(order.card?._id);
-        } catch (error) {
-          await logError(interaction.client, "Card Unlock Failed", error, {
+          {
+            $set: {
+              status: "failed",
+              confirming: false,
+              confirmationState: null,
+              confirmationToken: null,
+              confirmationStartedAt: null,
+              confirmationExpiresAt: null,
+              expiresAt: null,
+            },
+          },
+        );
+        declinedOrderUpdated = declinedOrder.matchedCount === 1;
+      } catch (error) {
+        await logError(
+          interaction.client,
+          "Declined Order Persistence Failed",
+          error,
+          {
             User: discordUserId,
             "Checkout ID": checkoutId,
-          });
-        }
+            "Provider Outcome": providerOutcome,
+          },
+        );
       }
 
       await logError(
         interaction.client,
         "Order Confirmation Failed",
-        "The provider declined the payment method. No alternate card was used.",
+        cardUpdateError ??
+          providerDetails.message ??
+          "The provider declined the payment method.",
         {
           User: discordUserId,
           "Checkout ID": checkoutId,
+          "Provider Error Code":
+            providerDetails.code ?? (result.ok ? null : result.code) ?? "N/A",
+          "Provider HTTP Status":
+            result.status === undefined ? "unknown" : String(result.status),
+          "Provider Outcome": providerOutcome,
+          "Card Blocked":
+            providerDetails.code === "FORTER_DECLINE"
+              ? declinedCardUpdated
+                ? "Yes"
+                : "No"
+              : "N/A",
+          "Declined Card Updated": declinedCardUpdated ? "Yes" : "No",
+          "Order State Updated": declinedOrderUpdated ? "Yes" : "No",
+          "Alternate Card Selected": "No",
           ...(providerOrderId ? { "Order ID": providerOrderId } : {}),
         },
       );
+
       await sendError(interaction, {
         title: "Order Confirmation Failed",
-        description:
-          "The provider declined this payment method. The checkout will not be retried with another card.",
+        description: declinedCardUpdated
+          ? "The provider declined this payment method. The declined card has been removed from use, and this checkout will not be retried with another card."
+          : "The provider declined this payment method, but its card could not be safely updated. The checkout will not be retried; please contact support.",
         footer: "Please contact support before creating another checkout.",
         ephemeral: false,
       });
@@ -330,9 +361,11 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     }
 
     if (providerOutcome === "uncertain") {
-      const uncertaintyReason = result.ok
-        ? "The provider returned an unusable confirmation response."
-        : result.message;
+      const uncertaintyReason =
+        providerDetails.message ??
+        (result.ok
+          ? "The provider returned an unusable confirmation response."
+          : result.message);
 
       await Order.findOneAndUpdate(
         {
@@ -362,6 +395,12 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         {
           User: discordUserId,
           "Checkout ID": checkoutId,
+          "Provider Error Code":
+            providerDetails.code ??
+            (result.ok ? "N/A" : (result.transportCode ?? "N/A")),
+          "Provider HTTP Status":
+            result.status === undefined ? "unknown" : String(result.status),
+          "Provider Outcome": providerOutcome,
         },
       );
       await sendError(interaction, {
@@ -379,16 +418,19 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         ? (providerData.price as Record<string, unknown>)
         : {};
     const providerTracking =
-      typeof providerData.tracking === "string" ? providerData.tracking : null;
+      typeof providerData.tracking === "string" &&
+      providerData.tracking.trim().length > 0
+        ? providerData.tracking
+        : null;
     const providerCost =
       typeof providerPrice.total === "number" &&
       Number.isFinite(providerPrice.total)
         ? providerPrice.total
         : order.cost;
 
-    let persistedConfirmation;
     try {
-      persistedConfirmation = await Order.findOneAndUpdate(
+      const message = `Provider confirmation for checkout ${checkoutId} succeeded, but its local order state could not be claimed for persistence. Wallet payment was not attempted.`;
+      const persistedConfirmation = await Order.findOneAndUpdate(
         {
           _id: order._id,
           discordUserId,
@@ -414,6 +456,19 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         },
         { returnDocument: "after", upsert: false },
       ).exec();
+
+      if (!persistedConfirmation) {
+        await logError(
+          interaction.client,
+          "Order Reconciliation Required",
+          message,
+          {
+            User: discordUserId,
+            "Checkout ID": checkoutId,
+            ...(providerOrderId ? { "Order ID": providerOrderId } : {}),
+          },
+        );
+      }
     } catch (error) {
       await logError(
         interaction.client,
@@ -425,36 +480,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           ...(providerOrderId ? { "Order ID": providerOrderId } : {}),
         },
       );
-      await sendError(interaction, {
-        title: "Payment Reconciliation Required",
-        description:
-          "The provider confirmed your order, but local status could not be verified. No wallet payment was taken. Support has been notified.",
-        footer: "Please contact support before attempting another payment.",
-        ephemeral: false,
-      });
-      return;
-    }
-
-    if (!persistedConfirmation) {
-      const message = `Provider confirmation for checkout ${checkoutId} succeeded, but its local order state could not be claimed for persistence. Wallet payment was not attempted.`;
-      await logError(
-        interaction.client,
-        "Order Reconciliation Required",
-        message,
-        {
-          User: discordUserId,
-          "Checkout ID": checkoutId,
-          ...(providerOrderId ? { "Order ID": providerOrderId } : {}),
-        },
-      );
-      await sendError(interaction, {
-        title: "Payment Reconciliation Required",
-        description:
-          "The provider confirmed your order, but local status could not be verified. No wallet payment was taken. Support has been notified.",
-        footer: "Please contact support before attempting another payment.",
-        ephemeral: false,
-      });
-      return;
     }
 
     try {
@@ -484,7 +509,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       await logError(
         interaction.client,
         "Payment Reconciliation Required",
-        "The provider confirmed the checkout but did not return an order ID. Wallet payment was not taken.",
+        "The provider confirmed the checkout but did not return an order ID. The checkout ID will be used as the order reference.",
         {
           User: discordUserId,
           "Checkout ID": checkoutId,
@@ -492,48 +517,23 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       );
     }
 
-    let discountedPrice: ReturnType<typeof calculateDiscountedOrderPrice>;
-    try {
-      discountedPrice = calculateDiscountedOrderPrice(
-        {
-          subtotal:
-            typeof providerPrice.subtotal === "number"
-              ? providerPrice.subtotal
-              : Number.NaN,
-          service:
-            typeof providerPrice.service === "number"
-              ? providerPrice.service
-              : Number.NaN,
-          delivery:
-            typeof providerPrice.delivery === "number"
-              ? providerPrice.delivery
-              : Number.NaN,
-        },
-        order.discountPercentage,
-      );
-    } catch (error) {
-      const reconciliationError = `Provider confirmed order ${providerOrderId ?? checkoutId}, but its customer price could not be calculated.`;
-
-      await logError(
-        interaction.client,
-        "Payment Reconciliation Required",
-        error,
-        {
-          User: discordUserId,
-          "Checkout ID": checkoutId,
-          ...(providerOrderId ? { "Order ID": providerOrderId } : {}),
-          Error: reconciliationError,
-        },
-      );
-      await sendError(interaction, {
-        title: "Payment Reconciliation Required",
-        description:
-          "Your order was confirmed, but its final total could not be calculated. Support has been notified; no wallet payment was taken.",
-        footer: "Please contact support before attempting another payment.",
-        ephemeral: false,
-      });
-      return;
-    }
+    const discountedPrice = calculateDiscountedOrderPrice(
+      {
+        subtotal:
+          typeof providerPrice.subtotal === "number"
+            ? providerPrice.subtotal
+            : Number.NaN,
+        service:
+          typeof providerPrice.service === "number"
+            ? providerPrice.service
+            : Number.NaN,
+        delivery:
+          typeof providerPrice.delivery === "number"
+            ? providerPrice.delivery
+            : Number.NaN,
+      },
+      order.discountPercentage,
+    );
 
     const providerTotalCents = dollarsToCents(discountedPrice.total);
     const expectedTotalCents = dollarsToCents(order.total);

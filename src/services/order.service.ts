@@ -1,6 +1,7 @@
 import axios from "axios";
 import { env } from "../config/env.js";
 import { errorLog } from "../../logs/printLogs.js";
+import { getProviderConfirmationDetails } from "./order-confirmation.service.js";
 
 interface CreateOrderInput {
   cartCode: string;
@@ -88,7 +89,6 @@ export async function createOrder(
       data,
     };
   } catch (error: unknown) {
-    console.log(error)
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       const apiError: unknown = error.response?.data;
@@ -129,7 +129,10 @@ export async function createOrder(
       if (
         apiCode === "CHECKOUT_FAILED" &&
         apiMessage?.includes("SAVING_CREDIT_CARD_FAILED") &&
-        apiMessage.includes("Pick Up Card")
+        (apiMessage.includes("Pick Up Card") ||
+          apiMessage.includes(
+            "Issuer or Cardholder has put a restriction on the card",
+          ))
       ) {
         return {
           code: "CARD_ISSUE",
@@ -221,7 +224,23 @@ export async function cancelOrder(id: string) {
     };
   }
 }
-export async function confirmOrder(id: string) {
+export type ConfirmOrderResult =
+  | {
+      ok: true;
+      data: unknown;
+      status: number;
+    }
+  | {
+      ok: false;
+      uncertain: true;
+      data: unknown;
+      code: string | null;
+      transportCode: string | null;
+      message: string;
+      status?: number;
+    };
+
+export async function confirmOrder(id: string): Promise<ConfirmOrderResult> {
   try {
     const response = await axios.post(
       `${env.yonderApiBaseUrl}/checkouts/${encodeURIComponent(id)}/confirm`,
@@ -237,32 +256,22 @@ export async function confirmOrder(id: string) {
     return {
       ok: true as const,
       data: response.data,
+      status: response.status,
     };
   } catch (error: unknown) {
-    console.log(error)
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
-      const apiError: unknown = error.response?.data;
-
-      const errorData =
-        typeof apiError === "object" && apiError !== null
-          ? (apiError as Record<string, unknown>)
-          : {};
-
-      const apiMessage =
-        typeof errorData.message === "string"
-          ? errorData.message
-          : typeof errorData.error === "string"
-            ? errorData.error
-            : undefined;
-
-      errorLog(`Failed to confirm checkout ${id}: HTTP ${status ?? "unknown"}`);
+      const data: unknown = error.response?.data;
+      const details = getProviderConfirmationDetails(data);
 
       return {
         ok: false as const,
         uncertain: true as const,
+        data,
+        code: details.code,
+        transportCode: error.code ?? null,
         message:
-          apiMessage ??
+          details.message ??
           (status === 404
             ? "Checkout not found."
             : status === 401 || status === 403
@@ -270,15 +279,22 @@ export async function confirmOrder(id: string) {
               : status === 429
                 ? "Too many requests. Please try again shortly."
                 : "Failed to confirm your checkout. Please contact support before retrying."),
-        status,
+        ...(status !== undefined ? { status } : {}),
       };
     }
-
-    errorLog(`Unexpected error confirming checkout ${id}: ${String(error)}`);
 
     return {
       ok: false as const,
       uncertain: true as const,
+      data: null,
+      code: null,
+      transportCode:
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        typeof error.code === "string"
+          ? error.code
+          : null,
       message: "An unexpected error occurred while confirming your checkout.",
     };
   }
