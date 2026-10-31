@@ -37,8 +37,6 @@ export function classifyProviderConfirmation(
   ok: boolean,
   data: unknown,
 ): ProviderConfirmationOutcome {
-  if (!ok) return "uncertain";
-
   if (
     typeof data === "object" &&
     data !== null &&
@@ -48,5 +46,7 @@ export function classifyProviderConfirmation(
     return "declined";
   }
 
+  if (!ok) return "uncertain";
+  
   return "confirmed";
 }

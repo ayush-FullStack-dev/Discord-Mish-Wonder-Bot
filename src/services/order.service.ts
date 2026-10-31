@@ -88,6 +88,7 @@ export async function createOrder(
       data,
     };
   } catch (error: unknown) {
+    console.log(error)
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       const apiError: unknown = error.response?.data;
@@ -166,7 +167,6 @@ export async function cancelOrder(id: string) {
       `${env.yonderApiBaseUrl}/checkouts/${encodeURIComponent(id)}/cancel`,
       {},
       {
-        timeout: 15_000,
         headers: {
           Authorization: `Bearer ${env.yonderApiKey}`,
           "Content-Type": "application/json",
@@ -227,7 +227,6 @@ export async function confirmOrder(id: string) {
       `${env.yonderApiBaseUrl}/checkouts/${encodeURIComponent(id)}/confirm`,
       {},
       {
-        timeout: 15_000,
         headers: {
           Authorization: `Bearer ${env.yonderApiKey}`,
           "Content-Type": "application/json",
@@ -240,6 +239,7 @@ export async function confirmOrder(id: string) {
       data: response.data,
     };
   } catch (error: unknown) {
+    console.log(error)
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       const apiError: unknown = error.response?.data;
@@ -328,7 +328,6 @@ export async function editOrder(
           Authorization: `Bearer ${env.yonderApiKey}`,
           "Content-Type": "application/json",
         },
-        timeout: 15000,
       },
     );
 
