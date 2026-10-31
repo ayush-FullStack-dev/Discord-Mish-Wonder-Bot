@@ -9,9 +9,16 @@ import {
 } from "../../utils/error-handler.js";
 import { deleteOrderTicket } from "../../helpers/deleteOrderTicket.js";
 import { logSuccess, logError } from "../../utils/logger.js";
-import { Card } from "../../models/card.model.js";
+import { randomUUID } from "node:crypto";
+import { releaseCardLockIfUnused } from "../../services/card.service.js";
+import { createPendingOrderClaimFilter } from "../../services/order-confirmation-state.js";
 
 export async function handleCancelOrder(interaction: ButtonInteraction) {
+  let claimedOrderId: typeof Order.prototype._id | null = null;
+  let claimedOrderExpiresAt: Date | null = null;
+  let confirmationToken: string | null = null;
+  let providerRequestStarted = false;
+
   const displayName =
     interaction.member instanceof GuildMember
       ? interaction.member.displayName
@@ -56,12 +63,38 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
       return;
     }
 
-    const order = await Order.findOne({
-      checkoutId,
-      discordUserId,
-      status: "pending",
-      confirming: false,
-    }).populate("card", "_id last4Digits expiryDate status");
+    const checkoutExpiry = await Order.findOne(
+      createPendingOrderClaimFilter(checkoutId, discordUserId, new Date()),
+    )
+      .select("_id expiresAt")
+      .lean()
+      .exec();
+
+    confirmationToken = randomUUID();
+    claimedOrderExpiresAt = checkoutExpiry?.expiresAt ?? null;
+
+    const order = checkoutExpiry
+      ? await Order.findOneAndUpdate(
+          createPendingOrderClaimFilter(
+            checkoutId,
+            discordUserId,
+            new Date(),
+          ),
+          {
+            $set: {
+              confirming: true,
+              confirmationState: "claimed",
+              confirmationToken,
+              confirmationStartedAt: new Date(),
+              confirmationExpiresAt: checkoutExpiry.expiresAt,
+              expiresAt: null,
+            },
+          },
+          { returnDocument: "after", upsert: false },
+        )
+          .populate("card", "_id last4Digits expiryDate status")
+          .exec()
+      : null;
 
     if (!order) {
       await logError(
@@ -86,30 +119,101 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
       });
       return;
     }
+    claimedOrderId = order._id;
+
+    const requestStarted = await Order.updateOne(
+      {
+        _id: order._id,
+        status: "pending",
+        confirming: true,
+        confirmationState: "claimed",
+        confirmationToken,
+      },
+      {
+        $set: {
+          confirmationState: "cancel_requested",
+          confirmationStartedAt: new Date(),
+        },
+      },
+    );
+
+    if (requestStarted.matchedCount !== 1) {
+      throw new Error("The order lock was lost before cancellation request.");
+    }
 
     let result;
 
     try {
+      providerRequestStarted = true;
       result = await cancelOrder(checkoutId);
     } catch (error) {
-      await logError(interaction.client, "Order Cancellation Failed", error, {
-        User: discordUserId,
-        "Checkout ID": checkoutId,
-      });
+      await Order.findOneAndUpdate(
+        {
+          _id: order._id,
+          status: "pending",
+          confirming: true,
+          confirmationState: "cancel_requested",
+          confirmationToken,
+        },
+        {
+          $set: {
+            status: "unknown",
+            confirming: false,
+            confirmationState: "unknown",
+            confirmationToken: null,
+            confirmationStartedAt: null,
+            confirmationExpiresAt: null,
+            expiresAt: null,
+          },
+        },
+        { returnDocument: "after", upsert: false },
+      ).exec();
 
-      await handleInteractionError(
-        interaction,
+      await logError(
+        interaction.client,
+        "Order Cancellation Requires Reconciliation",
         error,
-        "Failed to cancel order",
+        {
+          User: discordUserId,
+          "Checkout ID": checkoutId,
+        },
       );
+      await sendError(interaction, {
+        title: "Cancellation Status Uncertain",
+        description:
+          "The cancellation result could not be verified. This checkout cannot be retried safely. Support has been notified.",
+        footer: "Please contact support before confirming or cancelling again.",
+        ephemeral: false,
+      });
       return;
     }
 
     if (!result.ok) {
+      await Order.findOneAndUpdate(
+        {
+          _id: order._id,
+          status: "pending",
+          confirming: true,
+          confirmationToken,
+        },
+        {
+          $set: {
+            status: "unknown",
+            confirming: false,
+            confirmationState: "unknown",
+            confirmationToken: null,
+            confirmationStartedAt: null,
+            confirmationExpiresAt: null,
+            expiresAt: null,
+          },
+        },
+        { returnDocument: "after", upsert: false },
+      ).exec();
+
       await logError(
         interaction.client,
-        "Order Cancellation Failed",
-        result.message,
+        "Order Cancellation Requires Reconciliation",
+        `The provider response for checkout ${checkoutId} was not definitive. No confirmation or cancellation request will be retried.`,
         {
           User: discordUserId,
           "Checkout ID": checkoutId,
@@ -117,10 +221,10 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
       );
 
       await sendError(interaction, {
-        title: "Cancellation Failed",
-        description: result.message,
-        footer:
-          "Your order has not been marked as cancelled. You can try again.",
+        title: "Cancellation Status Uncertain",
+        description:
+          "The provider did not return a definitive cancellation result. This checkout cannot be retried safely. Support has been notified.",
+        footer: "Please contact support before confirming or cancelling again.",
         ephemeral: false,
       });
       return;
@@ -131,10 +235,18 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
         _id: order._id,
         discordUserId,
         status: "pending",
+        confirming: true,
+        confirmationState: "cancel_requested",
+        confirmationToken,
       },
       {
         $set: {
           status: "cancelled",
+          confirming: false,
+          confirmationState: null,
+          confirmationToken: null,
+          confirmationStartedAt: null,
+          confirmationExpiresAt: null,
           expiresAt: null,
         },
       },
@@ -174,10 +286,14 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
       },
     );
 
-    await Card.findOneAndUpdate(
-      { _id: order.card?._id },
-      { $set: { isLocked: false } },
-    );
+    try {
+      await releaseCardLockIfUnused(order.card?._id);
+    } catch (error) {
+      await logError(interaction.client, "Card Unlock Failed", error, {
+        User: discordUserId,
+        "Checkout ID": checkoutId,
+      });
+    }
 
     await sendSuccess(interaction, {
       title: "Order Cancelled",
@@ -206,5 +322,39 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
       error,
       "Failed to process order cancellation",
     );
+  } finally {
+    if (claimedOrderId && confirmationToken && !providerRequestStarted) {
+      try {
+        await Order.updateOne(
+          {
+            _id: claimedOrderId,
+            status: "pending",
+            confirming: true,
+            confirmationState: "claimed",
+            confirmationToken,
+          },
+          {
+            $set: {
+              confirming: false,
+              confirmationState: null,
+              confirmationToken: null,
+              confirmationStartedAt: null,
+              expiresAt: claimedOrderExpiresAt,
+              confirmationExpiresAt: null,
+            },
+          },
+        );
+      } catch (error) {
+        await logError(
+          interaction.client,
+          "Failed to Release Cancellation Lock",
+          error,
+          {
+            User: interaction.user.id,
+            "Confirmation Token": confirmationToken,
+          },
+        );
+      }
+    }
   }
 }

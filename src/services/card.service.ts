@@ -1,10 +1,54 @@
 import axios from "axios";
 import { env } from "../config/env.js";
 import { Card } from "../models/card.model.js";
+import { Order } from "../models/order.model.js";
 import { encrypt } from "../utils/encryption.js";
 import type { QueryFilter } from "mongoose";
+import type { Types } from "mongoose";
 import type { ICard } from "../types/index.js";
 import { getCardExpirationDate } from "../utils/util.js";
+
+export function createCardLockOwnerFilter(
+  cardId: Types.ObjectId | string,
+  now: Date,
+) {
+  return {
+    card: cardId,
+    $or: [
+      { status: "unknown" as const },
+      {
+        status: "pending" as const,
+        $or: [
+          { confirming: true },
+          { expiresAt: { $gt: now } },
+          { expiresAt: null },
+        ],
+      },
+    ],
+  };
+}
+
+export async function releaseCardLockIfUnused(
+  cardId: Types.ObjectId | string | null | undefined,
+): Promise<boolean> {
+  if (!cardId) return false;
+
+  const activeOrder = await Order.exists(
+    createCardLockOwnerFilter(cardId, new Date()),
+  );
+
+  if (activeOrder) return false;
+
+  const released = await Card.updateOne(
+    {
+      _id: cardId,
+      isLocked: true,
+      reconciliationCheckoutId: null,
+    },
+    { $set: { isLocked: false } },
+  );
+  return released.modifiedCount === 1;
+}
 
 function handleDatabaseError(error: unknown): never {
   if (error instanceof Error) {

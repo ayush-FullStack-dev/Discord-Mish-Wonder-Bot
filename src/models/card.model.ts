@@ -56,6 +56,11 @@ const cardSchema = new Schema(
       index: true,
     },
 
+    reconciliationCheckoutId: {
+      type: String,
+      default: null,
+    },
+
     isPin: {
       type: Boolean,
       default: false,

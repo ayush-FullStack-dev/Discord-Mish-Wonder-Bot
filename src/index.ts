@@ -42,7 +42,7 @@ async function main() {
   success("Database connection established.");
 
   startExpireOrdersJob();
-  startReconcileLockedCardsJob();
+  startReconcileLockedCardsJob(client);
   await client.login(env.discordToken);
 }
 

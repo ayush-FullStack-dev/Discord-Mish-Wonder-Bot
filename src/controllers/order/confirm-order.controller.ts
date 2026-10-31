@@ -4,20 +4,24 @@ import {
   MessageFlags,
   type ButtonInteraction,
 } from "discord.js";
+import { randomUUID } from "node:crypto";
 import {
   accountConfigure,
   getJobStatus,
 } from "../../services/account.service.js";
 import { UserChain } from "../../models/userChain.model.js";
 import { Order } from "../../models/order.model.js";
-import { confirmOrder, editOrder } from "../../services/order.service.js";
+import { confirmOrder } from "../../services/order.service.js";
 import { createConfirmedOrderPanel } from "../../ui/order/createConfirmedOrderPanel.js";
 import { sendError } from "../../ui/utils/sendError.js";
 import {
   attemptInteractionResponse,
   handleInteractionError,
 } from "../../utils/error-handler.js";
-import { deductBalance, getBalance } from "../../services/balance.service.js";
+import {
+  deductBalanceOnce,
+  getBalance,
+} from "../../services/balance.service.js";
 import {
   calculateDiscountedOrderPrice,
   centsToDollars,
@@ -25,7 +29,11 @@ import {
 } from "../../utils/util.js";
 import { logSuccess, logError } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
-import { decrypt } from "../../utils/encryption.js";
+import { releaseCardLockIfUnused } from "../../services/card.service.js";
+import {
+  classifyProviderConfirmation,
+  createPendingOrderClaimFilter,
+} from "../../services/order-confirmation-state.js";
 import { sendLoading } from "../../ui/utils/sendLoading.js";
 import { env } from "../../config/env.js";
 
@@ -97,7 +105,9 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
 
 export async function handleConfirmOrder(interaction: ButtonInteraction) {
   let claimedOrderId: typeof Order.prototype._id | null = null;
-  let providerConfirmed = false;
+  let claimedOrderExpiresAt: Date | null = null;
+  let confirmationToken: string | null = null;
+  let providerRequestStarted = false;
 
   try {
     await attemptInteractionResponse(interaction, () =>
@@ -129,23 +139,41 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       return;
     }
 
-    const order = await Order.findOneAndUpdate(
-      {
-        checkoutId,
-        discordUserId,
-        status: "pending",
-        confirming: { $ne: true },
-      },
-      {
-        $set: { confirming: true },
-      },
-      {
-        returnDocument: "after",
-        upsert: false,
-      },
+    const checkoutExpiry = await Order.findOne(
+      createPendingOrderClaimFilter(checkoutId, discordUserId, new Date()),
     )
-      .populate("card", "_id last4Digits expiryDate status")
+      .select("_id expiresAt")
+      .lean()
       .exec();
+
+    confirmationToken = randomUUID();
+    claimedOrderExpiresAt = checkoutExpiry?.expiresAt ?? null;
+
+    const order = checkoutExpiry
+      ? await Order.findOneAndUpdate(
+          createPendingOrderClaimFilter(
+            checkoutId,
+            discordUserId,
+            new Date(),
+          ),
+          {
+            $set: {
+              confirming: true,
+              confirmationState: "claimed",
+              confirmationToken,
+              confirmationStartedAt: new Date(),
+              confirmationExpiresAt: checkoutExpiry.expiresAt,
+              expiresAt: null,
+            },
+          },
+          {
+            returnDocument: "after",
+            upsert: false,
+          },
+        )
+          .populate("card", "_id last4Digits expiryDate status")
+          .exec()
+      : null;
 
     if (!order) {
       await sendError(interaction, {
@@ -209,96 +237,304 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       return;
     }
 
-    const result = await confirmOrder(checkoutId);
+    const requestStarted = await Order.updateOne(
+      {
+        _id: order._id,
+        status: "pending",
+        confirming: true,
+        confirmationState: "claimed",
+        confirmationToken,
+      },
+      {
+        $set: {
+          confirmationState: "provider_requested",
+          confirmationStartedAt: new Date(),
+        },
+      },
+    );
 
-    if (result.data?.code === "FORTER_DECLINE" && result.data?.retryable) {
-      await Card.findByIdAndUpdate(order.card?._id, {
-        isLocked: false,
-        status: "blocked",
-      });
-
-      const card = await Card.findOne({
-        isLocked: false,
-        status: "active",
-      }).sort({ isPin: -1 });
-
-      if (!card) {
-        await sendError(interaction, {
-          title: "No Cards Available",
-          description:
-            "No payment methods are currently available. Our team is working on adding more cards. Please try again later.",
-          footer: "Please wait until more cards become available.",
-        });
-
-        await logError(
-          interaction.client,
-          "No Cards Available",
-          "No active cards are available. New cards need to be added to restore order processing.",
-          {
-            User: interaction.user.id,
-            Action: "Add new cards",
-            Status: "No active cards available",
-          },
-        );
-
-        return;
-      }
-
-      await editOrder(checkoutId, {
-        card: `${decrypt(card.encryptedCardNumber)},${card.expiryDate},${decrypt(card.encryptedCardCvv)},${card.zipcode}`,
-      });
+    if (requestStarted.matchedCount !== 1) {
+      throw new Error("The confirmation lock was lost before provider request.");
     }
 
-    if (!result.ok) {
+    providerRequestStarted = true;
+    const result = await confirmOrder(checkoutId);
+    const providerData =
+      result.ok &&
+      typeof result.data === "object" &&
+      result.data !== null
+        ? (result.data as Record<string, unknown>)
+        : {};
+    const providerOutcome = classifyProviderConfirmation(
+      result.ok,
+      providerData,
+    );
+    const providerOrderId =
+      typeof providerData.order_id === "string" ? providerData.order_id : null;
+
+    if (providerOutcome === "declined") {
+      let cardBlocked = false;
+      try {
+        if (order.card?._id) {
+          await Card.updateOne(
+            { _id: order.card._id },
+            { $set: { status: "blocked" } },
+          );
+          cardBlocked = true;
+        }
+      } catch (error) {
+        await logError(interaction.client, "Card Block Failed", error, {
+          User: discordUserId,
+          "Checkout ID": checkoutId,
+        });
+      }
+
+      const declinedOrder = await Order.findOneAndUpdate(
+        {
+          _id: order._id,
+          status: "pending",
+          confirming: true,
+          confirmationToken,
+        },
+        {
+          $set: {
+            status:
+              order.card?._id && !cardBlocked ? "unknown" : "failed",
+            confirming: false,
+            confirmationState:
+              order.card?._id && !cardBlocked ? "unknown" : null,
+            confirmationToken: null,
+            confirmationStartedAt: null,
+            confirmationExpiresAt: null,
+            expiresAt: null,
+          },
+        },
+        { returnDocument: "after", upsert: false },
+      ).exec();
+
+      if (declinedOrder && cardBlocked) {
+        try {
+          await releaseCardLockIfUnused(order.card?._id);
+        } catch (error) {
+          await logError(interaction.client, "Card Unlock Failed", error, {
+            User: discordUserId,
+            "Checkout ID": checkoutId,
+          });
+        }
+      }
+
       await logError(
         interaction.client,
         "Order Confirmation Failed",
-        result.message,
+        "The provider declined the payment method. No alternate card was used.",
+        {
+          User: discordUserId,
+          "Checkout ID": checkoutId,
+          ...(providerOrderId ? { "Order ID": providerOrderId } : {}),
+        },
+      );
+      await sendError(interaction, {
+        title: "Order Confirmation Failed",
+        description:
+          "The provider declined this payment method. The checkout will not be retried with another card.",
+        footer: "Please contact support before creating another checkout.",
+        ephemeral: false,
+      });
+      return;
+    }
+
+    if (providerOutcome === "uncertain") {
+      const uncertaintyReason = result.ok
+        ? "The provider returned an unusable confirmation response."
+        : result.message;
+
+      await Order.findOneAndUpdate(
+        {
+          _id: order._id,
+          status: "pending",
+          confirming: true,
+          confirmationToken,
+        },
+        {
+          $set: {
+            status: "unknown",
+            confirming: false,
+            confirmationState: "unknown",
+            confirmationToken: null,
+            confirmationStartedAt: null,
+            confirmationExpiresAt: null,
+            expiresAt: null,
+          },
+        },
+        { returnDocument: "after", upsert: false },
+      ).exec();
+
+      await logError(
+        interaction.client,
+        "Provider Confirmation Requires Reconciliation",
+        `${uncertaintyReason} The provider response for checkout ${checkoutId} was not definitive. No further confirmation request will be sent.`,
         {
           User: discordUserId,
           "Checkout ID": checkoutId,
         },
       );
-
       await sendError(interaction, {
-        title: "Order Confirmation Failed",
-        description: result.message,
-        footer: "Your order has not been marked as confirmed.",
+        title: "Order Status Uncertain",
+        description:
+          "The provider did not return a definitive confirmation result. To avoid a duplicate order, this checkout cannot be retried automatically. Support has been notified.",
+        footer: "Please contact support before attempting another checkout.",
         ephemeral: false,
       });
-
       return;
     }
 
-    const data = result.data;
-    providerConfirmed = true;
+    const providerPrice =
+      typeof providerData.price === "object" && providerData.price !== null
+        ? (providerData.price as Record<string, unknown>)
+        : {};
+    const providerTracking =
+      typeof providerData.tracking === "string" ? providerData.tracking : null;
+    const providerCost =
+      typeof providerPrice.total === "number" &&
+      Number.isFinite(providerPrice.total)
+        ? providerPrice.total
+        : order.cost;
+
+    let persistedConfirmation;
+    try {
+      persistedConfirmation = await Order.findOneAndUpdate(
+        {
+          _id: order._id,
+          discordUserId,
+          status: "pending",
+          confirming: true,
+          confirmationToken,
+        },
+        {
+          $set: {
+            status: "confirmed",
+            confirming: false,
+            confirmationState: "provider_confirmed",
+            confirmationToken: null,
+            confirmationStartedAt: null,
+            confirmationExpiresAt: null,
+            orderId: providerOrderId,
+            cost: providerCost,
+            trackingUrl: providerTracking,
+            total: order.total,
+            paymentStatus: "reconciliation_required",
+            expiresAt: null,
+          },
+        },
+        { returnDocument: "after", upsert: false },
+      ).exec();
+    } catch (error) {
+      await logError(
+        interaction.client,
+        "Order Database Update Failed",
+        error,
+        {
+          User: discordUserId,
+          "Checkout ID": checkoutId,
+          ...(providerOrderId ? { "Order ID": providerOrderId } : {}),
+        },
+      );
+      await sendError(interaction, {
+        title: "Payment Reconciliation Required",
+        description:
+          "The provider confirmed your order, but local status could not be verified. No wallet payment was taken. Support has been notified.",
+        footer: "Please contact support before attempting another payment.",
+        ephemeral: false,
+      });
+      return;
+    }
+
+    if (!persistedConfirmation) {
+      const message = `Provider confirmation for checkout ${checkoutId} succeeded, but its local order state could not be claimed for persistence. Wallet payment was not attempted.`;
+      await logError(
+        interaction.client,
+        "Order Reconciliation Required",
+        message,
+        {
+          User: discordUserId,
+          "Checkout ID": checkoutId,
+          ...(providerOrderId ? { "Order ID": providerOrderId } : {}),
+        },
+      );
+      await sendError(interaction, {
+        title: "Payment Reconciliation Required",
+        description:
+          "The provider confirmed your order, but local status could not be verified. No wallet payment was taken. Support has been notified.",
+        footer: "Please contact support before attempting another payment.",
+        ephemeral: false,
+      });
+      return;
+    }
 
     try {
-      await Card.findOneAndUpdate(
-        { _id: order.card?._id },
-        { $set: { isLocked: false } },
-      );
+      await releaseCardLockIfUnused(order.card?._id);
     } catch (error) {
-      console.error("Failed to unlock card after order confirmation:", error);
       await logError(interaction.client, "Card Unlock Failed", error, {
         User: discordUserId,
         "Checkout ID": checkoutId,
-        "Order ID": data.order_id,
+        ...(providerOrderId ? { "Order ID": providerOrderId } : {}),
       });
+    }
+
+    if (!providerTracking) {
+      await logError(
+        interaction.client,
+        "Order Tracking Missing",
+        new Error("Tracking information is missing for this order."),
+        {
+          "Order ID": providerOrderId ?? checkoutId,
+          User: interaction.user.id,
+          Status: "Tracking Unavailable",
+        },
+      );
+    }
+
+    if (!providerOrderId) {
+      await logError(
+        interaction.client,
+        "Payment Reconciliation Required",
+        "The provider confirmed the checkout but did not return an order ID. Wallet payment was not taken.",
+        {
+          User: discordUserId,
+          "Checkout ID": checkoutId,
+        },
+      );
+      await sendError(interaction, {
+        title: "Payment Reconciliation Required",
+        description:
+          "Your order was confirmed, but the provider did not return tracking details needed to verify it. No wallet payment was taken. Support has been notified.",
+        footer: "Please contact support before attempting another payment.",
+        ephemeral: false,
+      });
+      return;
     }
 
     let discountedPrice: ReturnType<typeof calculateDiscountedOrderPrice>;
     try {
       discountedPrice = calculateDiscountedOrderPrice(
         {
-          subtotal: data.price.subtotal,
-          service: data.price.service,
-          delivery: data.price.delivery,
+          subtotal:
+            typeof providerPrice.subtotal === "number"
+              ? providerPrice.subtotal
+              : Number.NaN,
+          service:
+            typeof providerPrice.service === "number"
+              ? providerPrice.service
+              : Number.NaN,
+          delivery:
+            typeof providerPrice.delivery === "number"
+              ? providerPrice.delivery
+              : Number.NaN,
         },
         order.discountPercentage,
       );
     } catch (error) {
-      const reconciliationError = `Provider confirmed order ${data.order_id}, but its customer price could not be calculated.`;
+      const reconciliationError = `Provider confirmed order ${providerOrderId ?? checkoutId}, but its customer price could not be calculated.`;
 
       await logError(
         interaction.client,
@@ -307,7 +543,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         {
           User: discordUserId,
           "Checkout ID": checkoutId,
-          "Order ID": data.order_id,
+          ...(providerOrderId ? { "Order ID": providerOrderId } : {}),
           Error: reconciliationError,
         },
       );
@@ -324,7 +560,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     const calculatedTotal = discountedPrice.total;
 
     if (!Number.isFinite(calculatedTotal) || calculatedTotal < 0) {
-      const reconciliationError = `Provider confirmed order ${data.order_id}, but its calculated customer total is invalid: $${calculatedTotal}.`;
+      const reconciliationError = `Provider confirmed order ${providerOrderId ?? checkoutId}, but its calculated customer total is invalid: $${calculatedTotal}.`;
 
       await logError(
         interaction.client,
@@ -333,7 +569,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         {
           User: discordUserId,
           "Checkout ID": checkoutId,
-          "Order ID": data.order_id,
+          ...(providerOrderId ? { "Order ID": providerOrderId } : {}),
           "Calculated Total": String(calculatedTotal),
         },
       );
@@ -350,7 +586,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     const calculatedTotalCents = dollarsToCents(calculatedTotal);
     const expectedTotalCents = dollarsToCents(order.total);
     if (expectedTotalCents !== calculatedTotalCents) {
-      const reconciliationError = `Provider-confirmed total for order ${data.order_id} differs from the checkout amount. Checkout: $${order.total.toFixed(2)}, confirmed: $${calculatedTotal.toFixed(2)}.`;
+      const reconciliationError = `Provider-confirmed total for order ${providerOrderId ?? checkoutId} differs from the checkout amount. Checkout: $${order.total.toFixed(2)}, confirmed: $${calculatedTotal.toFixed(2)}.`;
 
       await logError(
         interaction.client,
@@ -359,7 +595,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         {
           User: discordUserId,
           "Checkout ID": checkoutId,
-          "Order ID": data.order_id,
+          ...(providerOrderId ? { "Order ID": providerOrderId } : {}),
           "Checkout Total": `$${order.total.toFixed(2)}`,
           "Confirmed Total": `$${calculatedTotal.toFixed(2)}`,
         },
@@ -374,21 +610,32 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       return;
     }
 
-    const validatedCustomerTotal = order.total;
-    const orderTotalCents = expectedTotalCents;
     let remainingBalance: bigint | null = null;
     let deductionError: unknown;
 
     try {
-      remainingBalance = await deductBalance(discordUserId, orderTotalCents);
+      const deduction = await deductBalanceOnce(
+        discordUserId,
+        expectedTotalCents,
+        checkoutId,
+      );
+      if (deduction.ok) {
+        remainingBalance = deduction.remainingBalance;
+      } else {
+        deductionError = new Error(
+          deduction.reason === "missing"
+            ? "Wallet account was not found."
+            : "Wallet balance changed before payment could be deducted.",
+        );
+      }
     } catch (error) {
       deductionError = error;
     }
 
     if (remainingBalance === null) {
       const reconciliationMessage = deductionError
-        ? `Provider confirmed order ${data.order_id}, but wallet deduction failed: ${String(deductionError)}`
-        : `Provider confirmed order ${data.order_id}, but wallet deduction failed.`;
+        ? `Provider confirmed order ${providerOrderId ?? checkoutId}, but wallet deduction failed: ${String(deductionError)}`
+        : `Provider confirmed order ${providerOrderId ?? checkoutId}, but wallet deduction failed.`;
 
       await logError(
         interaction.client,
@@ -397,11 +644,44 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         {
           User: discordUserId,
           "Checkout ID": checkoutId,
-          "Order ID": data.order_id,
-          Total: `$${validatedCustomerTotal.toFixed(2)}`,
+          ...(providerOrderId ? { "Order ID": providerOrderId } : {}),
+          Total: `$${order.total.toFixed(2)}`,
         },
       );
-      console.error(`[RECONCILIATION REQUIRED] ${reconciliationMessage}`);
+    } else {
+      try {
+        const paymentUpdated = await Order.updateOne(
+          {
+            _id: order._id,
+            status: "confirmed",
+            paymentStatus: "reconciliation_required",
+          },
+          { $set: { paymentStatus: "paid" } },
+        );
+        if (paymentUpdated.matchedCount !== 1) {
+          await logError(
+            interaction.client,
+            "Wallet Payment Reconciliation Required",
+            "Wallet deduction succeeded, but the local payment status was not updated.",
+            {
+              User: discordUserId,
+              "Checkout ID": checkoutId,
+              "Order ID": providerOrderId,
+            },
+          );
+        }
+      } catch (error) {
+        await logError(
+          interaction.client,
+          "Wallet Payment Reconciliation Required",
+          error,
+          {
+            User: discordUserId,
+            "Checkout ID": checkoutId,
+            ...(providerOrderId ? { "Order ID": providerOrderId } : {}),
+          },
+        );
+      }
     }
 
     await logSuccess(
@@ -410,12 +690,12 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       [
         "**The order has been successfully completed.**",
         "",
-        data.tracking
-          ? `[View Live Order Tracking →](${data.tracking})`
+        providerTracking
+          ? `[View Live Order Tracking →](${providerTracking})`
           : "Tracking information is currently unavailable.",
       ].join("\n"),
       {
-        Customer: discordUserId,
+        Customer: `<@${discordUserId}>`,
         "Checkout ID": checkoutId,
         "Payment Status":
           remainingBalance === null
@@ -424,84 +704,21 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       },
     );
 
-    try {
-      const updatedOrder = await Order.findOneAndUpdate(
-        {
-          _id: order._id,
-          discordUserId,
-          status: "pending",
-          confirming: true,
-        },
-        {
-          $set: {
-            status: "confirmed",
-            confirming: false,
-            orderId: data.order_id,
-            cost: data.price.total,
-            trackingUrl: data.tracking,
-            total: validatedCustomerTotal,
-            expiresAt: null,
-          },
-        },
-        {
-          returnDocument: "after",
-          upsert: false,
-        },
-      ).exec();
-
-      if (!updatedOrder) {
-        const reconciliationError = `Provider order ${data.order_id} is confirmed, but the local order record was not updated${
-          remainingBalance === null ? "" : " after wallet deduction"
-        }. Checkout: ${checkoutId}`;
-
-        console.error(`[RECONCILIATION REQUIRED] ${reconciliationError}`);
-        await logError(
-          interaction.client,
-          "Order Reconciliation Required",
-          reconciliationError,
-          {
-            User: discordUserId,
-            "Checkout ID": checkoutId,
-            "Order ID": data.order_id,
-            Total: `$${validatedCustomerTotal.toFixed(2)}`,
-          },
-        );
-      }
-    } catch (error) {
-      console.error(
-        `[RECONCILIATION REQUIRED] Provider order ${data.order_id} is confirmed, but the local DB update failed${
-          remainingBalance === null ? "" : " after wallet deduction"
-        }. Checkout: ${checkoutId}`,
-        error,
-      );
-      await logError(
-        interaction.client,
-        "Order Database Update Failed",
-        error,
-        {
-          User: discordUserId,
-          "Checkout ID": checkoutId,
-          "Order ID": data.order_id,
-          Total: `$${validatedCustomerTotal.toFixed(2)}`,
-        },
-      );
-    }
-
-    if (!data.tracking) {
-      await logError(
-        interaction.client,
-        "Order Tracking Missing",
-        new Error("Tracking information is missing for this order."),
-        {
-          "Order ID": String(data.id),
-          User: interaction.user.id,
-          Status: "Tracking Unavailable",
-        },
-      );
-    }
-
+    const restaurant =
+      typeof providerData.restaurant === "string"
+        ? providerData.restaurant
+        : "your restaurant";
     const panel = createConfirmedOrderPanel({
-      order: { ...data, total: validatedCustomerTotal },
+      order: {
+        id: providerOrderId ?? checkoutId,
+        status:
+          typeof providerData.status === "string"
+            ? providerData.status
+            : "confirmed",
+        tracking: providerTracking,
+        restaurant,
+        total: order.total,
+      },
     });
 
     await attemptInteractionResponse(interaction, () =>
@@ -512,16 +729,22 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     );
 
     const channel = interaction.channel;
-
     const displayName =
       interaction.member instanceof GuildMember
         ? interaction.member.displayName
         : (interaction.user.globalName ?? interaction.user.username);
 
     if (channel?.type === ChannelType.GuildText) {
-      await channel.setName(
-        `✅-order-${displayName.toLowerCase().replace(/[^a-z0-9-]/g, "-")}`,
-      );
+      try {
+        await channel.setName(
+          `✅-order-${displayName.toLowerCase().replace(/[^a-z0-9-]/g, "-")}`,
+        );
+      } catch (error) {
+        await logError(interaction.client, "Order Ticket Rename Failed", error, {
+          User: discordUserId,
+          "Checkout ID": checkoutId,
+        });
+      }
     }
 
     try {
@@ -532,8 +755,8 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       );
     } catch {}
 
-    setTimeout(async () => {
-      handleCreateAccount(interaction);
+    setTimeout(() => {
+      void handleCreateAccount(interaction);
     }, 5_000);
   } catch (error) {
     await logError(interaction.client, "Order Confirmation Error", error, {
@@ -544,19 +767,38 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     await handleInteractionError(interaction, error, "Failed to confirm order");
   } finally {
-    if (claimedOrderId && !providerConfirmed) {
-      await Order.updateOne(
-        {
-          _id: claimedOrderId,
-          status: "pending",
-          confirming: true,
-        },
-        {
-          $set: { confirming: false },
-        },
-      ).catch((error) => {
-        console.error("Failed to release confirmation lock:", error);
-      });
+    if (claimedOrderId && confirmationToken && !providerRequestStarted) {
+      try {
+        await Order.updateOne(
+          {
+            _id: claimedOrderId,
+            status: "pending",
+            confirming: true,
+            confirmationState: "claimed",
+            confirmationToken,
+          },
+          {
+            $set: {
+              confirming: false,
+              confirmationState: null,
+              confirmationToken: null,
+              confirmationStartedAt: null,
+              expiresAt: claimedOrderExpiresAt,
+              confirmationExpiresAt: null,
+            },
+          },
+        );
+      } catch (error) {
+        await logError(
+          interaction.client,
+          "Failed to Release Confirmation Lock",
+          error,
+          {
+            User: interaction.user.id,
+            "Confirmation Token": confirmationToken,
+          },
+        );
+      }
     }
   }
 }

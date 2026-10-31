@@ -1,6 +1,6 @@
 import cron from "node-cron";
 import { Order } from "../models/order.model.js";
-import { Card } from "../models/card.model.js";
+import { releaseCardLockIfUnused } from "../services/card.service.js";
 
 export function startExpireOrdersJob() {
   cron.schedule("*/5 * * * *", async () => {
@@ -35,23 +35,11 @@ export function startExpireOrdersJob() {
 
       if (!deletedOrders.deletedCount || !cardIds.length) return;
 
-      const remainingOrders = await Order.distinct("card", {
-        card: { $in: cardIds },
-        status: "pending",
-      });
-
-      const remainingCardIds = new Set(
-        remainingOrders.map((id) => id.toString()),
-      );
-
-      const unlockCardIds = cardIds.filter((id) => !remainingCardIds.has(id));
-
-      if (unlockCardIds.length) {
-        await Card.updateMany(
-          { _id: { $in: unlockCardIds }, isLocked: true },
-          { $set: { isLocked: false } },
-        );
+      for (const cardId of cardIds) {
+        await releaseCardLockIfUnused(cardId);
       }
-    } catch {}
+    } catch (error) {
+      console.error("Failed to expire pending orders:", error);
+    }
   });
 }

@@ -154,6 +154,7 @@ export async function cancelOrder(id: string) {
       `${env.yonderApiBaseUrl}/checkouts/${encodeURIComponent(id)}/cancel`,
       {},
       {
+        timeout: 15_000,
         headers: {
           Authorization: `Bearer ${env.yonderApiKey}`,
           "Content-Type": "application/json",
@@ -214,6 +215,7 @@ export async function confirmOrder(id: string) {
       `${env.yonderApiBaseUrl}/checkouts/${encodeURIComponent(id)}/confirm`,
       {},
       {
+        timeout: 15_000,
         headers: {
           Authorization: `Bearer ${env.yonderApiKey}`,
           "Content-Type": "application/json",
@@ -226,7 +228,6 @@ export async function confirmOrder(id: string) {
       data: response.data,
     };
   } catch (error: unknown) {
-    console.log(error);
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       const apiError: unknown = error.response?.data;
@@ -243,28 +244,30 @@ export async function confirmOrder(id: string) {
             ? errorData.error
             : undefined;
 
-      errorLog(`Failed to cancel checkout ${id}: HTTP ${status ?? "unknown"}`);
+      errorLog(`Failed to confirm checkout ${id}: HTTP ${status ?? "unknown"}`);
 
       return {
         ok: false as const,
+        uncertain: true as const,
         message:
           apiMessage ??
           (status === 404
             ? "Checkout not found."
             : status === 401 || status === 403
-              ? "Unable to authorize the cancellation request."
+              ? "Unable to authorize the confirmation request."
               : status === 429
                 ? "Too many requests. Please try again shortly."
-                : "Failed to cancel your checkout. Please try again later."),
+                : "Failed to confirm your checkout. Please contact support before retrying."),
         status,
       };
     }
 
-    errorLog(`Unexpected error cancelling checkout ${id}: ${String(error)}`);
+    errorLog(`Unexpected error confirming checkout ${id}: ${String(error)}`);
 
     return {
       ok: false as const,
-      message: "An unexpected error occurred while cancelling your checkout.",
+      uncertain: true as const,
+      message: "An unexpected error occurred while confirming your checkout.",
     };
   }
 }
