@@ -151,11 +151,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     const order = checkoutExpiry
       ? await Order.findOneAndUpdate(
-          createPendingOrderClaimFilter(
-            checkoutId,
-            discordUserId,
-            new Date(),
-          ),
+          createPendingOrderClaimFilter(checkoutId, discordUserId, new Date()),
           {
             $set: {
               confirming: true,
@@ -254,15 +250,15 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     );
 
     if (requestStarted.matchedCount !== 1) {
-      throw new Error("The confirmation lock was lost before provider request.");
+      throw new Error(
+        "The confirmation lock was lost before provider request.",
+      );
     }
 
     providerRequestStarted = true;
     const result = await confirmOrder(checkoutId);
     const providerData =
-      result.ok &&
-      typeof result.data === "object" &&
-      result.data !== null
+      result.ok && typeof result.data === "object" && result.data !== null
         ? (result.data as Record<string, unknown>)
         : {};
     const providerOutcome = classifyProviderConfirmation(
@@ -298,8 +294,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         },
         {
           $set: {
-            status:
-              order.card?._id && !cardBlocked ? "unknown" : "failed",
+            status: order.card?._id && !cardBlocked ? "unknown" : "failed",
             confirming: false,
             confirmationState:
               order.card?._id && !cardBlocked ? "unknown" : null,
@@ -688,11 +683,12 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       interaction.client,
       "Order Completed Successfully",
       [
-        "**The order has been successfully completed.**",
-        "",
         providerTracking
-          ? `[View Live Order Tracking →](${providerTracking})`
-          : "Tracking information is currently unavailable.",
+          ? [
+              "<a:FoodDeliverybike1:1564011957105856513>  Track Your Order",
+              `[View Live Tracking →](${providerTracking}) \n`,
+            ].join("          ")
+          : "Tracking information is currently unavailable.\n",
       ].join("\n"),
       {
         Customer: `<@${discordUserId}>`,
@@ -740,10 +736,15 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           `✅-order-${displayName.toLowerCase().replace(/[^a-z0-9-]/g, "-")}`,
         );
       } catch (error) {
-        await logError(interaction.client, "Order Ticket Rename Failed", error, {
-          User: discordUserId,
-          "Checkout ID": checkoutId,
-        });
+        await logError(
+          interaction.client,
+          "Order Ticket Rename Failed",
+          error,
+          {
+            User: discordUserId,
+            "Checkout ID": checkoutId,
+          },
+        );
       }
     }
 
