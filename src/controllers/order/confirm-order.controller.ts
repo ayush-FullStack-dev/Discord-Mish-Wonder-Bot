@@ -92,7 +92,6 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
   }
 }
 
-// handleCreateAccount()
 export async function handleConfirmOrder(interaction: ButtonInteraction) {
   let claimedOrderId: typeof Order.prototype._id | null = null;
   let claimedOrderExpiresAt: Date | null = null;
@@ -257,6 +256,8 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     );
     const providerOrderId =
       typeof providerData.order_id === "string" ? providerData.order_id : null;
+
+    const orderReference = providerOrderId ?? checkoutId;
 
     if (providerOutcome === "declined") {
       let cardBlocked = false;
@@ -457,7 +458,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     }
 
     try {
-      await releaseCardLockIfUnused(order.card?._id);
+      await releaseCardLockIfUnused(order.card?._id, discordUserId);
     } catch (error) {
       await logError(interaction.client, "Card Unlock Failed", error, {
         User: discordUserId,
@@ -489,14 +490,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           "Checkout ID": checkoutId,
         },
       );
-      await sendError(interaction, {
-        title: "Payment Reconciliation Required",
-        description:
-          "Your order was confirmed, but the provider did not return tracking details needed to verify it. No wallet payment was taken. Support has been notified.",
-        footer: "Please contact support before attempting another payment.",
-        ephemeral: false,
-      });
-      return;
     }
 
     let discountedPrice: ReturnType<typeof calculateDiscountedOrderPrice>;
@@ -542,57 +535,21 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       return;
     }
 
-    const calculatedTotal = discountedPrice.total;
-
-    if (!Number.isFinite(calculatedTotal) || calculatedTotal < 0) {
-      const reconciliationError = `Provider confirmed order ${providerOrderId ?? checkoutId}, but its calculated customer total is invalid: $${calculatedTotal}.`;
-
-      await logError(
-        interaction.client,
-        "Payment Reconciliation Required",
-        reconciliationError,
-        {
-          User: discordUserId,
-          "Checkout ID": checkoutId,
-          ...(providerOrderId ? { "Order ID": providerOrderId } : {}),
-          "Calculated Total": String(calculatedTotal),
-        },
-      );
-      await sendError(interaction, {
-        title: "Payment Reconciliation Required",
-        description:
-          "Your order was confirmed, but its final total could not be calculated. Support has been notified.",
-        footer: "Please contact support before retrying payment.",
-        ephemeral: false,
-      });
-      return;
-    }
-
-    const calculatedTotalCents = dollarsToCents(calculatedTotal);
+    const providerTotalCents = dollarsToCents(discountedPrice.total);
     const expectedTotalCents = dollarsToCents(order.total);
-    if (expectedTotalCents !== calculatedTotalCents) {
-      const reconciliationError = `Provider-confirmed total for order ${providerOrderId ?? checkoutId} differs from the checkout amount. Checkout: $${order.total.toFixed(2)}, confirmed: $${calculatedTotal.toFixed(2)}.`;
 
+    if (expectedTotalCents !== providerTotalCents) {
       await logError(
         interaction.client,
-        "Payment Reconciliation Required",
-        reconciliationError,
+        "Order Price Mismatch",
+        "Provider-confirmed price differs from the database order total. Processing will continue using the database amount.",
         {
           User: discordUserId,
           "Checkout ID": checkoutId,
-          ...(providerOrderId ? { "Order ID": providerOrderId } : {}),
-          "Checkout Total": `$${order.total.toFixed(2)}`,
-          "Confirmed Total": `$${calculatedTotal.toFixed(2)}`,
+          "Checkout Total": String(order.total),
+          "Confirmed Total": String(discountedPrice.total),
         },
       );
-      await sendError(interaction, {
-        title: "Payment Reconciliation Required",
-        description:
-          "The confirmed order price differs from the checkout price. Support has been notified and no wallet payment was taken.",
-        footer: "Please contact support before attempting another payment.",
-        ephemeral: false,
-      });
-      return;
     }
 
     let remainingBalance: bigint | null = null;
@@ -643,6 +600,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           },
           { $set: { paymentStatus: "paid" } },
         );
+
         if (paymentUpdated.matchedCount !== 1) {
           await logError(
             interaction.client,
@@ -651,7 +609,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
             {
               User: discordUserId,
               "Checkout ID": checkoutId,
-              "Order ID": providerOrderId,
             },
           );
         }
@@ -696,7 +653,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         : "your restaurant";
     const panel = createConfirmedOrderPanel({
       order: {
-        id: providerOrderId ?? checkoutId,
+        id: orderReference,
         status:
           typeof providerData.status === "string"
             ? providerData.status

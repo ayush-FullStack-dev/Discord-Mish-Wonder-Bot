@@ -150,7 +150,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       footer: "No order is placed until you confirm.",
     });
 
-    let card = await Card.findOneAndUpdate(
+    const card = await Card.findOneAndUpdate(
       {
         isLocked: false,
         reconciliationCheckoutId: null,

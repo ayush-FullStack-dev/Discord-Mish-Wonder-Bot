@@ -30,6 +30,7 @@ export function createCardLockOwnerFilter(
 
 export async function releaseCardLockIfUnused(
   cardId: Types.ObjectId | string | null | undefined,
+  userId: string | null = null,
 ): Promise<boolean> {
   if (!cardId) return false;
 
@@ -45,7 +46,7 @@ export async function releaseCardLockIfUnused(
       isLocked: true,
       reconciliationCheckoutId: null,
     },
-    { $set: { isLocked: false } },
+    { $set: { isLocked: false, lastUsedBy: userId } },
   );
   return released.modifiedCount === 1;
 }
