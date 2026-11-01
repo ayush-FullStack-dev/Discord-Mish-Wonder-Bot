@@ -113,7 +113,7 @@ export function createShopPanel(): MessageCreateOptions {
       id: "1563809327486210088",
     })
     .setStyle(ButtonStyle.Link)
-    .setURL("https://wonder-builder-production.up.railway.app/");
+    .setURL("https://wonder-order-production-020f.up.railway.app/");
 
   const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
     buyButton,
