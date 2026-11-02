@@ -19,6 +19,7 @@ export const earningsCommand = new SlashCommandBuilder()
       .setRequired(true)
       .addChoices(
         { name: "Last 24 Hours", value: "last24hours" },
+        { name: "Last 7 Days", value: "last7days" },
         { name: "Last 30 Days", value: "last30days" },
         { name: "Last 365 Days", value: "last365days" },
         { name: "Today", value: "day" },

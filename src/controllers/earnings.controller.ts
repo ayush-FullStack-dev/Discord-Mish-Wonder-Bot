@@ -13,16 +13,17 @@ const BOT_OWNER_ID = "1525807833277268060";
 const TIMEZONE = "Asia/Kolkata";
 
 type EarningsMode =
+  | "last24hours"
+  | "last7days"
+  | "last30days"
+  | "last365days"
   | "day"
   | "yesterday"
-  | "last24hours"
   | "week"
   | "month"
   | "lastmonth"
-  | "last30days"
   | "year"
-  | "lastyear"
-  | "last365days";
+  | "lastyear";
 
 interface DateRange {
   start: Date;
@@ -49,7 +50,6 @@ function getISTDateParts(date: Date) {
   };
 }
 
-// Convert IST midnight to UTC.
 function getISTMidnightUTC(year: number, month: number, day: number): Date {
   return new Date(Date.UTC(year, month - 1, day) - 5.5 * 60 * 60 * 1000);
 }
@@ -129,6 +129,13 @@ function getDateRange(mode: EarningsMode, now: Date): DateRange {
         start: getISTMidnightUTC(year, month - 1, 1),
         end: getISTMidnightUTC(year, month, 1),
         label: "Previous Month",
+      };
+
+    case "last7days":
+      return {
+        start: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000),
+        end: now,
+        label: "Last 7 Days",
       };
 
     case "last30days":
