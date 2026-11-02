@@ -10,11 +10,161 @@ import { logError } from "../utils/logger.js";
 import { requireAdmin } from "../middleware.js";
 
 const BOT_OWNER_ID = "1525807833277268060";
+const TIMEZONE = "Asia/Kolkata";
+
+type EarningsMode =
+  | "day"
+  | "yesterday"
+  | "last24hours"
+  | "week"
+  | "month"
+  | "lastmonth"
+  | "last30days"
+  | "year"
+  | "lastyear"
+  | "last365days";
+
+interface DateRange {
+  start: Date;
+  end: Date;
+  label: string;
+}
+
+function getISTDateParts(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: TIMEZONE,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    weekday: "short",
+  }).formatToParts(date);
+
+  const get = (type: string) => parts.find((part) => part.type === type)?.value;
+
+  return {
+    year: Number(get("year")),
+    month: Number(get("month")),
+    day: Number(get("day")),
+    weekday: get("weekday")!,
+  };
+}
+
+// Convert IST midnight to UTC.
+function getISTMidnightUTC(year: number, month: number, day: number): Date {
+  return new Date(Date.UTC(year, month - 1, day) - 5.5 * 60 * 60 * 1000);
+}
+
+function getDateRange(mode: EarningsMode, now: Date): DateRange {
+  const { year, month, day, weekday } = getISTDateParts(now);
+
+  const today = getISTMidnightUTC(year, month, day);
+
+  const weekdays: Record<string, number> = {
+    Mon: 0,
+    Tue: 1,
+    Wed: 2,
+    Thu: 3,
+    Fri: 4,
+    Sat: 5,
+    Sun: 6,
+  };
+
+  switch (mode) {
+    case "day":
+      return {
+        start: today,
+        end: now,
+        label: "Today",
+      };
+
+    case "yesterday":
+      return {
+        start: getISTMidnightUTC(year, month, day - 1),
+        end: today,
+        label: "Yesterday",
+      };
+
+    case "last24hours":
+      return {
+        start: new Date(now.getTime() - 24 * 60 * 60 * 1000),
+        end: now,
+        label: "Last 24 Hours",
+      };
+
+    case "week": {
+      const weekdays: Record<string, number> = {
+        Mon: 0,
+        Tue: 1,
+        Wed: 2,
+        Thu: 3,
+        Fri: 4,
+        Sat: 5,
+        Sun: 6,
+      };
+
+      const daysSinceMonday = weekdays[weekday];
+
+      if (daysSinceMonday === undefined) {
+        throw new Error(`Invalid weekday: ${weekday}`);
+      }
+
+      const start = getISTMidnightUTC(year, month, day - daysSinceMonday);
+
+      return {
+        start,
+        end: now,
+        label: "This Week",
+      };
+    }
+
+    case "month":
+      return {
+        start: getISTMidnightUTC(year, month, 1),
+        end: now,
+        label: "This Month",
+      };
+
+    case "lastmonth":
+      return {
+        start: getISTMidnightUTC(year, month - 1, 1),
+        end: getISTMidnightUTC(year, month, 1),
+        label: "Previous Month",
+      };
+
+    case "last30days":
+      return {
+        start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000),
+        end: now,
+        label: "Last 30 Days",
+      };
+
+    case "year":
+      return {
+        start: getISTMidnightUTC(year, 1, 1),
+        end: now,
+        label: "This Year",
+      };
+
+    case "lastyear":
+      return {
+        start: getISTMidnightUTC(year - 1, 1, 1),
+        end: getISTMidnightUTC(year, 1, 1),
+        label: "Previous Year",
+      };
+
+    case "last365days":
+      return {
+        start: new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000),
+        end: now,
+        label: "Last 365 Days",
+      };
+  }
+}
 
 export async function handleEarnings(
   interaction: ChatInputCommandInteraction,
 ): Promise<void> {
-  const mode = interaction.options.getString("mode", true);
+  const mode = interaction.options.getString("mode", true) as EarningsMode;
 
   try {
     if (!(await requireAdmin(interaction))) return;
@@ -24,42 +174,16 @@ export async function handleEarnings(
     });
 
     const now = new Date();
-    const start = new Date(now);
 
-    switch (mode) {
-      case "day":
-        start.setHours(0, 0, 0, 0);
-        break;
-
-      case "week": {
-        start.setHours(0, 0, 0, 0);
-        const day = start.getDay();
-        start.setDate(start.getDate() - (day === 0 ? 6 : day - 1));
-        break;
-      }
-
-      case "month":
-        start.setDate(1);
-        start.setHours(0, 0, 0, 0);
-        break;
-
-      case "year":
-        start.setMonth(0, 1);
-        start.setHours(0, 0, 0, 0);
-        break;
-
-      default:
-        await interaction.editReply({
-          content: "Invalid earnings period.",
-          components: [],
-        });
-        return;
-    }
+    const { start, end, label } = getDateRange(mode, now);
 
     const showProfit = interaction.user.id === BOT_OWNER_ID;
 
     const orders = await Order.find({
-      createdAt: { $gte: start, $lte: now },
+      createdAt: {
+        $gte: start,
+        $lt: end,
+      },
       status: "confirmed",
     })
       .select(showProfit ? "total cost" : "total")
@@ -68,13 +192,6 @@ export async function handleEarnings(
     const totalOrders = orders.length;
 
     const totalAmount = orders.reduce((sum, order) => sum + order.total, 0);
-
-    const periodLabels: Record<string, string> = {
-      day: "Today",
-      week: "This Week",
-      month: "This Month",
-      year: "This Year",
-    };
 
     const earningsFields = showProfit
       ? [
@@ -93,7 +210,7 @@ export async function handleEarnings(
       .setAccentColor(0x22c55e)
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
-          `## <a:analytics:1564538016742248488> Earnings — ${periodLabels[mode]}`,
+          `## <a:analytics:1564538016742248488> Earnings — ${label}`,
         ),
       )
       .addSeparatorComponents(new SeparatorBuilder())

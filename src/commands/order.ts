@@ -18,10 +18,16 @@ export const earningsCommand = new SlashCommandBuilder()
       .setDescription("Select the earnings period.")
       .setRequired(true)
       .addChoices(
+        { name: "Last 24 Hours", value: "last24hours" },
+        { name: "Last 30 Days", value: "last30days" },
+        { name: "Last 365 Days", value: "last365days" },
         { name: "Today", value: "day" },
+        { name: "Yesterday", value: "yesterday" },
         { name: "This Week", value: "week" },
         { name: "This Month", value: "month" },
         { name: "This Year", value: "year" },
+        { name: "Previous Month", value: "lastmonth" },
+        { name: "Previous Year", value: "lastyear" },
       ),
   )
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild);
