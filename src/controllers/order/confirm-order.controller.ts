@@ -176,6 +176,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         footer: "No payment has been taken.",
         ephemeral: false,
       });
+
       return;
     }
 
@@ -188,6 +189,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         footer: "Please deposit funds and try again.",
         ephemeral: false,
       });
+
       return;
     }
 
@@ -257,6 +259,26 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
             isLocked: false,
             status: "blocked",
           });
+
+          await sendError(interaction, {
+            title: "Payment Declined",
+            description:
+              "Your payment was declined by our security verification system. Please try again later or contact support.",
+            footer: "Your order could not be completed.",
+          });
+
+          return await logError(
+            interaction.client,
+            "Forter Decline - Retry Failed",
+            "Payment was declined again by Forter after switching to a new card.",
+            {
+              User: interaction.user.id,
+              "Checkout ID": checkoutId,
+              "Card ID": newCard._id.toString(),
+              Action: "Card blocked after retry",
+              Status: "FORTER_DECLINE",
+            },
+          );
         }
       }
     }
