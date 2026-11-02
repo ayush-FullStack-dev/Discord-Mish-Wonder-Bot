@@ -4,7 +4,7 @@ import {
   getChains,
 } from "../services/account.service.js";
 import { minChainAccountCount } from "../constants/constant.js";
-import { info, success, errorLog } from "../../logs/printLogs.js";
+import { success, errorLog } from "../../logs/printLogs.js";
 
 type Ichain = {
   chain: string;

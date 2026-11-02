@@ -1,7 +1,6 @@
 import axios from "axios";
 import { env } from "../config/env.js";
 import { errorLog } from "../../logs/printLogs.js";
-import { getProviderConfirmationDetails } from "./order-confirmation.service.js";
 
 interface CreateOrderInput {
   cartCode: string;
@@ -126,21 +125,6 @@ export async function createOrder(
         };
       }
 
-      if (
-        apiCode === "CHECKOUT_FAILED" &&
-        apiMessage?.includes("SAVING_CREDIT_CARD_FAILED") &&
-        (apiMessage.includes("Pick Up Card") ||
-          apiMessage.includes(
-            "Issuer or Cardholder has put a restriction on the card",
-          ))
-      ) {
-        return {
-          code: "CARD_ISSUE",
-          message:
-            "Your payment card was rejected by the issuing bank. Please contact your bank for assistance or use another valid payment method.",
-        };
-      }
-
       if (status === 429 || apiCode === "RATE_LIMITED") {
         return {
           code: "RATE_LIMITED",
@@ -224,23 +208,19 @@ export async function cancelOrder(id: string) {
     };
   }
 }
+
 export type ConfirmOrderResult =
   | {
       ok: true;
-      data: unknown;
-      status: number;
+      data: any;
     }
   | {
       ok: false;
-      uncertain: true;
-      data: unknown;
-      code: string | null;
-      transportCode: string | null;
       message: string;
       status?: number;
     };
 
-export async function confirmOrder(id: string): Promise<ConfirmOrderResult> {
+export async function confirmOrder(id: string) {
   try {
     const response = await axios.post(
       `${env.yonderApiBaseUrl}/checkouts/${encodeURIComponent(id)}/confirm`,
@@ -256,59 +236,72 @@ export async function confirmOrder(id: string): Promise<ConfirmOrderResult> {
     return {
       ok: true as const,
       data: response.data,
-      status: response.status,
     };
   } catch (error: unknown) {
+    console.log(error);
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
-      const data: unknown = error.response?.data;
-      const details = getProviderConfirmationDetails(data);
+      const apiError: unknown = error.response?.data;
+
+      const errorData =
+        typeof apiError === "object" && apiError !== null
+          ? (apiError as Record<string, unknown>)
+          : {};
+
+      const apiMessage =
+        typeof errorData.message === "string"
+          ? errorData.message
+          : typeof errorData.error === "string"
+            ? errorData.error
+            : undefined;
+
+      errorLog(`Failed to cancel checkout ${id}: HTTP ${status ?? "unknown"}`);
 
       return {
         ok: false as const,
-        uncertain: true as const,
-        data,
-        code: details.code,
-        transportCode: error.code ?? null,
         message:
-          details.message ??
+          apiMessage ??
           (status === 404
             ? "Checkout not found."
             : status === 401 || status === 403
-              ? "Unable to authorize the confirmation request."
+              ? "Unable to authorize the cancellation request."
               : status === 429
                 ? "Too many requests. Please try again shortly."
-                : "Failed to confirm your checkout. Please contact support before retrying."),
-        ...(status !== undefined ? { status } : {}),
+                : "Failed to cancel your checkout. Please try again later."),
+        status,
       };
     }
 
+    errorLog(`Unexpected error cancelling checkout ${id}: ${String(error)}`);
+
     return {
       ok: false as const,
-      uncertain: true as const,
-      data: null,
-      code: null,
-      transportCode:
-        typeof error === "object" &&
-        error !== null &&
-        "code" in error &&
-        typeof error.code === "string"
-          ? error.code
-          : null,
-      message: "An unexpected error occurred while confirming your checkout.",
+      message: "An unexpected error occurred while cancelling your checkout.",
     };
   }
 }
 
 export type EditOrderPayload = Record<string, unknown>;
 
-export interface EditOrderResult {
-  ok: boolean;
-  code: string | null;
-  message: string;
-  data?: unknown;
-  status?: number;
-}
+export type EditOrderResult =
+  | {
+      ok: true;
+      data: any;
+      message?: never;
+      status?: never;
+    }
+  | {
+      ok: false;
+      message: string;
+      status: number | undefined;
+      data?: never;
+    }
+  | {
+      ok: false;
+      message: string;
+      data?: never;
+      status?: never;
+    };
 
 export async function editOrder(
   id: string,
@@ -317,7 +310,6 @@ export async function editOrder(
   if (!id?.trim()) {
     return {
       ok: false,
-      code: "INVALID_CHECKOUT_ID",
       message: "A valid checkout ID is required.",
     };
   }
@@ -330,7 +322,6 @@ export async function editOrder(
   ) {
     return {
       ok: false,
-      code: "INVALID_PAYLOAD",
       message: "Provide at least one field to update.",
     };
   }
@@ -344,6 +335,7 @@ export async function editOrder(
           Authorization: `Bearer ${env.yonderApiKey}`,
           "Content-Type": "application/json",
         },
+        timeout: 15000,
       },
     );
 
@@ -352,7 +344,6 @@ export async function editOrder(
     if (!data || typeof data !== "object" || Array.isArray(data)) {
       return {
         ok: false,
-        code: "INVALID_API_RESPONSE",
         message: "The API returned an invalid response.",
         status: response.status,
       };
@@ -363,22 +354,17 @@ export async function editOrder(
     if (result.ok === false) {
       return {
         ok: false,
-        code: typeof result.code === "string" ? result.code : "UPDATE_FAILED",
         message:
           typeof result.error === "string"
             ? result.error
             : "The checkout could not be updated.",
-        data,
         status: response.status,
       };
     }
 
     return {
       ok: true,
-      code: null,
-      message: "Checkout updated successfully.",
       data,
-      status: response.status,
     };
   } catch (error: unknown) {
     if (axios.isAxiosError(error)) {
@@ -392,9 +378,6 @@ export async function editOrder(
           ? (responseData as Record<string, unknown>)
           : {};
 
-      const code =
-        typeof errorData.code === "string" ? errorData.code : "UPDATE_FAILED";
-
       const message =
         typeof errorData.error === "string"
           ? errorData.error
@@ -402,15 +385,12 @@ export async function editOrder(
             ? errorData.message
             : "Failed to update checkout.";
 
-      errorLog(
-        `Failed to edit checkout: HTTP ${status ?? "unknown"}, code ${code}`,
-      );
+      errorLog(`Failed to edit checkout: HTTP ${status ?? "unknown"}`);
 
       return {
         ok: false,
-        code,
         message,
-        ...(status !== undefined ? { status } : {}),
+        status,
       };
     }
 
@@ -418,7 +398,6 @@ export async function editOrder(
 
     return {
       ok: false,
-      code: "UNKNOWN_ERROR",
       message: "An unexpected error occurred while updating checkout.",
     };
   }

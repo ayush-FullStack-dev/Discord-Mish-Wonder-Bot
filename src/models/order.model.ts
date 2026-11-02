@@ -61,39 +61,6 @@ const orderSchema = new Schema(
       default: false,
     },
 
-    confirmationState: {
-      type: String,
-      enum: [
-        "claimed",
-        "provider_requested",
-        "cancel_requested",
-        "provider_confirmed",
-        "unknown",
-      ],
-      default: null,
-    },
-
-    confirmationToken: {
-      type: String,
-      default: null,
-    },
-
-    confirmationStartedAt: {
-      type: Date,
-      default: null,
-    },
-
-    confirmationExpiresAt: {
-      type: Date,
-      default: null,
-    },
-
-    paymentStatus: {
-      type: String,
-      enum: ["unpaid", "paid", "reconciliation_required"],
-      default: "unpaid",
-    },
-
     card: {
       type: Schema.Types.ObjectId,
       ref: "Card",

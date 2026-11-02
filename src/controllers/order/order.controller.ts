@@ -17,6 +17,7 @@ import type { CheckoutData } from "../../ui/order/createCheckoutPanel.js";
 import { Order } from "../../models/order.model.js";
 import {
   calculateDiscountedOrderPrice,
+  centsToDollars,
   formatExpiryDate,
   secondsToMilliseconds,
 } from "../../utils/util.js";
@@ -25,7 +26,6 @@ import { env } from "../../config/env.js";
 import { requireAdmin } from "../../middleware.js";
 import { logError, sendErrorAndLog } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
-import { releaseCardLockIfUnused } from "../../services/card.service.js";
 import { decrypt } from "../../utils/encryption.js";
 import {
   minimumOrderSubTotal,
@@ -82,26 +82,7 @@ const ORDER_ERRORS: Record<
   },
 };
 
-type ICardDocument = {
-  encryptedCardNumber: string;
-  encryptedCardCvv: string;
-  expiryDate: string;
-  zipcode: string;
-};
-
-function getDecryptedCard(card: ICardDocument) {
-  return {
-    cardNumber: decrypt(card.encryptedCardNumber),
-    cvv: decrypt(card.encryptedCardCvv),
-    expiryDate: card.expiryDate,
-    zipcode: card.zipcode,
-  };
-}
-
 export async function handleOrderModal(interaction: ModalSubmitInteraction) {
-  let reservedCardId: typeof Card.prototype._id | null = null;
-  let keepCardLocked = false;
-
   await attemptInteractionResponse(interaction, () =>
     interaction.deferReply({
       flags: MessageFlags.Ephemeral,
@@ -126,6 +107,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       discordUserId: interaction.user.id,
       status: "pending",
     });
+
     if (pendingOrder >= 2) {
       await sendError(interaction, {
         title: "Pending Order Limit Reached",
@@ -150,20 +132,10 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       footer: "No order is placed until you confirm.",
     });
 
-    const card = await Card.findOneAndUpdate(
-      {
-        isLocked: false,
-        reconciliationCheckoutId: null,
-        status: "active",
-      },
-      {
-        $set: { isLocked: true },
-      },
-      {
-        sort: { isPin: -1 },
-        returnDocument: "after",
-      },
-    );
+    const card = await Card.findOne({
+      isLocked: false,
+      status: "active",
+    }).sort({ isPin: -1 });
 
     if (!card) {
       await sendError(interaction, {
@@ -186,10 +158,16 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
 
       return;
     }
-    reservedCardId = card._id;
 
-    const payCard = getDecryptedCard(card);
+    const payCard = {
+      cardNumber: decrypt(card.encryptedCardNumber),
+      cvv: decrypt(card.encryptedCardCvv),
+      expiryDate: card.expiryDate,
+      zipcode: card.zipcode,
+    };
+
     const appliedDiscountPercentage = await getDiscountPercentage();
+
     const result = await createOrder(
       {
         cartCode,
@@ -197,39 +175,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       payCard,
     );
 
-    if (result.code === "CARD_ISSUE") {
-      await Card.findByIdAndUpdate(card._id, {
-        $set: {
-          isLocked: false,
-          status: "inactive",
-        },
-      });
-
-      await sendError(interaction, {
-        title: "Order Failed",
-        description:
-          "We couldn't process your order due to a payment issue. Please try again or contact an admin for assistance.",
-        footer: "Contact an admin if the issue persists.",
-      });
-
-      await logError(
-        interaction.client,
-        "Payment Card Rejected by Issuer",
-        result.message,
-        {
-          "Card Last 4": card.last4Digits ?? "Unavailable",
-          User: interaction.user.id,
-          "Error Code": result.code,
-          Status: "Inactive",
-        },
-      );
-
-      return;
-    }
-
     if (result.code !== null && result.code !== undefined) {
-      await releaseCardLockIfUnused(card._id);
-
       if (
         [
           "NO_CARD",
@@ -263,7 +209,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     }
 
     if (!("data" in result)) {
-      await releaseCardLockIfUnused(card._id);
       throw new Error("Checkout response did not contain data.");
     }
 
@@ -307,8 +252,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         );
       }
 
-      await releaseCardLockIfUnused(card._id);
-
       await sendErrorAndLog(
         interaction,
         "Invalid Order Pricing",
@@ -336,8 +279,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         await cancelOrder(data.id);
       } catch {
       } finally {
-        await releaseCardLockIfUnused(card._id);
-
         return sendError(interaction, {
           title: "Minimum Order Not Met",
           description: `Your order total must be at least $${minimumOrderSubTotal}. Add another $${remainingAmount} to meet the minimum order requirement.`,
@@ -349,8 +290,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         await cancelOrder(data.id);
       } catch {
       } finally {
-        await releaseCardLockIfUnused(card._id);
-
         return sendError(interaction, {
           title: "Order Total Exceeds Limit",
           description: `The total amount of your order exceeds the maximum allowed limit of $${maxOrderAmount}.`,
@@ -388,78 +327,34 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         card: card._id,
         cost: data.price.total,
       });
-      keepCardLocked = true;
+
+      await Card.findOneAndUpdate(
+        { _id: card._id },
+        { $set: { isLocked: true } },
+      );
     } catch (error) {
-      let checkoutCancelled = false;
-      let cancellationError: unknown;
-
       try {
-        const cancellation = await cancelOrder(data.id);
-        checkoutCancelled = cancellation.ok;
-        if (!cancellation.ok) {
-          cancellationError = cancellation.message;
-        }
-      } catch (caughtCancellationError) {
-        cancellationError = caughtCancellationError;
-      }
-
-      let cardMarkedForReconciliation = false;
-      if (!checkoutCancelled) {
-        keepCardLocked = true;
-        await logError(
-          interaction.client,
-          "Checkout Cancellation Requires Reconciliation",
-          cancellationError,
-          {
-            "Checkout ID": data.id,
-            User: interaction.user.id,
-            "Card ID": String(card._id),
-          },
-        );
-
-        try {
-          const markedCard = await Card.updateOne(
-            { _id: card._id, isLocked: true },
-            { $set: { reconciliationCheckoutId: data.id } },
-          );
-          if (!markedCard.matchedCount) {
-            throw new Error(
-              "The reserved card could not be marked for reconciliation.",
-            );
-          }
-          cardMarkedForReconciliation = true;
-        } catch (reconciliationError) {
-          await logError(
-            interaction.client,
-            "Failed to Preserve Card Lock for Reconciliation",
-            reconciliationError,
-            {
-              "Checkout ID": data.id,
-              User: interaction.user.id,
-              "Card ID": String(card._id),
-            },
-          );
-        }
-      }
-
+        await cancelOrder(data.id);
+      } catch {}
       await sendErrorAndLog(
         interaction,
         "Failed to Save Order",
         "Failed to save your order to the database. Please try again later.",
-        checkoutCancelled
-          ? "Your checkout was cancelled. Please try again later."
-          : cardMarkedForReconciliation
-            ? "We could not confirm whether your checkout was cancelled. The card has been retained for review; please contact support."
-            : "We could not confirm whether your checkout was cancelled, and the card lock could not be durably recorded. Please contact support immediately.",
+        "Your order has been cancelled. Please try again later.",
         error,
         {
           "Order ID": String(data.id),
           User: interaction.user.id,
         },
       );
-      return await releaseCardLockIfUnused(card._id);
-    }
 
+      return sendError(interaction, {
+        title: "Failed to Save Order",
+        description:
+          "Failed to save your order to the database. Please try again later.",
+        footer: "Your order has been cancelled. Please try again later.",
+      });
+    }
     const checkoutData: CheckoutData = {
       id: data.id,
       status: data.status,
@@ -508,22 +403,29 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
 
     return setTimeout(
       async () => {
-        const expiredOrder = await Order.findOneAndDelete({
+        const checkOrder = await Order.findOne({
           checkoutId: data.id,
           card: card._id,
-          status: "pending",
-          confirming: { $ne: true },
-          expiresAt: { $lte: new Date() },
         });
 
-        if (expiredOrder) {
-          await releaseCardLockIfUnused(card._id);
+        if (!checkOrder) {
+          await Card.findOneAndUpdate(
+            { _id: card._id },
+            { $set: { isLocked: false } },
+          );
+
           await sendOrderExpired({
             replyTo: checkoutMessage,
             expiresIn: data.expires_in,
           });
-        } else if (!(await Order.exists({ checkoutId: data.id }))) {
-          await releaseCardLockIfUnused(card._id);
+        } else if (checkOrder.status === "pending") {
+          await Order.findByIdAndDelete(checkOrder._id);
+
+          await Card.findOneAndUpdate(
+            { _id: card._id },
+            { $set: { isLocked: false } },
+          );
+
           await sendOrderExpired({
             replyTo: checkoutMessage,
             expiresIn: data.expires_in,
@@ -543,17 +445,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       error,
       "Failed to process your order. Please try again later.",
     );
-  } finally {
-    if (reservedCardId && !keepCardLocked) {
-      try {
-        await releaseCardLockIfUnused(reservedCardId);
-      } catch (error) {
-        await logError(interaction.client, "Card Unlock Failed", error, {
-          User: interaction.user.id,
-          "Card ID": String(reservedCardId),
-        });
-      }
-    }
   }
 }
 export async function handleCloseOrder(
