@@ -23,7 +23,7 @@ import {
   centsToDollars,
   dollarsToCents,
 } from "../../utils/util.js";
-import { logSuccess, logError } from "../../utils/logger.js";
+import { logSuccess, logError, logOrderSuccess } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { decrypt } from "../../utils/encryption.js";
 import { sendLoading } from "../../ui/utils/sendLoading.js";
@@ -415,17 +415,10 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       );
       console.error(`[RECONCILIATION REQUIRED] ${reconciliationMessage}`);
     }
-    await logSuccess(
+    await logOrderSuccess(
       interaction.client,
       "Order Completed Successfully",
-      [
-        data.tracking
-          ? [
-              "<a:FoodDeliverybike1:1564011957105856513>  Track Your Order",
-              `[View Live Tracking →](${data.tracking}) \n`,
-            ].join("          ")
-          : "Tracking information is currently unavailable.\n",
-      ].join("\n"),
+      data.tracking,
       {
         Customer: `<@${discordUserId}>`,
         "Checkout ID": checkoutId,

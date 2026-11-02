@@ -74,6 +74,86 @@ async function sendLog(
   }
 }
 
+function addTrackingSection(
+  container: ContainerBuilder,
+  tracking?: string,
+): ContainerBuilder {
+  const content = tracking
+    ? [
+        "<a:FoodDeliverybike1:1564011957105856513>  Track Your Order",
+        `[View Live Tracking →](${tracking})`,
+      ].join("          ")
+    : "Tracking information is currently unavailable.";
+
+  return container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(content),
+  );
+}
+
+export async function logOrderSuccess(
+  client: Client,
+  title: string,
+  tracking: string | undefined,
+  details?: Record<string, string>,
+): Promise<void> {
+  try {
+    const channel = await client.channels.fetch(env.successChannelId);
+
+    if (!channel?.isTextBased() || !("send" in channel)) {
+      console.error("Success log channel unavailable.");
+      return;
+    }
+
+    const container = new ContainerBuilder()
+      .setAccentColor(0x22c55e)
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          `## <a:success_tick2:1563913347319996559> ${title}`,
+        ),
+      )
+      .addSeparatorComponents(
+        new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small),
+      );
+
+    // Tracking section (no separator below)
+    addTrackingSection(container, tracking);
+
+    const entries = Object.entries(details ?? {});
+
+    if (entries.length > 0) {
+      const detailLines = entries.slice(0, 6).map(([name, value]) => {
+        const displayValue =
+          name.toLowerCase() === "user" && /^\d{17,20}$/.test(value)
+            ? `<@${value}>`
+            : value;
+
+        return `**${name}**\n${displayValue.slice(0, 900) || "N/A"}`;
+      });
+
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(detailLines.join("\n\n")),
+      );
+    }
+
+    container
+      .addSeparatorComponents(
+        new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small),
+      )
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          `-# Success Logs • <t:${Math.floor(Date.now() / 1000)}:f>`,
+        ),
+      );
+
+    await channel.send({
+      components: [container],
+      flags: MessageFlags.IsComponentsV2,
+    });
+  } catch (error) {
+    console.error("Failed to send order success log:", error);
+  }
+}
+
 async function sendSuccessLog(
   client: Client,
   title: string,
