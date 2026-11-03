@@ -4,6 +4,7 @@ export interface CardReference {
   cardnumber: string;
   cvv: string;
   expdate: string;
+  fullname?: string;
   address: string;
   city: string;
   state: string;
@@ -12,14 +13,18 @@ export interface CardReference {
 
 export function validateCardReference(cardReference: string): CardReference {
   const fields = cardReference.split("|");
-  if (fields.length !== 7) {
-    throw new UserFacingError(
-      "Invalid format. Expected: cardnumber|expdate|cvv|address|city|state|zipcode",
-    );
+  if (fields.length !== 7 && fields.length !== 8) {
+    throw new UserFacingError("Invalid format. Expected 7 or 8 fields.");
   }
 
-  const [cardnumber, expdate, cvv, address, city, state, zipcode] =
-    fields.map((field) => field.trim());
+  const [cardnumber, expdate, cvv, fullname, address, city, state, zipcode] =
+    fields.length === 8
+      ? fields.map((field) => field.trim())
+      : [
+          ...fields.slice(0, 3).map((field) => field.trim()),
+          undefined,
+          ...fields.slice(3).map((field) => field.trim()),
+        ];
 
   if (
     !cardnumber ||
@@ -42,6 +47,10 @@ export function validateCardReference(cardReference: string): CardReference {
     state: /^[a-zA-Z\s.'-]{1,60}$/,
     zipcode: /^[a-zA-Z0-9\s-]{2,12}$/,
   };
+
+  if (fullname && fullname.length > 100) {
+    throw new UserFacingError("Invalid full name.");
+  }
 
   if (!validations.cardnumber.test(cardnumber)) {
     throw new UserFacingError("Invalid card number format.");
@@ -77,6 +86,7 @@ export function validateCardReference(cardReference: string): CardReference {
     cardnumber,
     expdate,
     cvv,
+    ...(fullname && { fullname }),
     address,
     city,
     state,
