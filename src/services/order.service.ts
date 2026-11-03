@@ -369,8 +369,6 @@ export async function confirmOrder(id: string) {
         };
       }
 
-      errorLog(`Failed to confirm checkout ${id}: HTTP ${status ?? "unknown"}`);
-
       return {
         ok: false as const,
         message:
@@ -386,7 +384,7 @@ export async function confirmOrder(id: string) {
       };
     }
 
-    errorLog(`Unexpected error confirming checkout ${id}: ${String(error)}`);
+    errorLog(`Unexpected error confirming checkout ${id}:`, error);
 
     return {
       ok: false as const,

@@ -11,7 +11,6 @@ export async function getBalance(uid: string): Promise<bigint | null> {
 
   return account.cents ?? 0n;
 }
-
 export async function updateBalance(
   uid: string,
   cents: bigint,

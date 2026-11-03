@@ -377,6 +377,21 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
       errorLog(`[RECONCILIATION REQUIRED] ${reconciliationMessage}`);
     }
+
+    if (!data.tracking) {
+      errorLog("Tracking information is missing for this order", data);
+      await logError(
+        interaction.client,
+        "Order Tracking Missing",
+        new Error("Tracking information is missing for this order."),
+        {
+          "Order ID": String(data.id),
+          User: interaction.user.id,
+          Status: "Tracking Unavailable",
+        },
+      );
+    }
+
     await logOrderSuccess(
       interaction.client,
       "Order Completed Successfully",
@@ -450,19 +465,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           "Checkout ID": checkoutId,
           "Order ID": data.order_id,
           Total: `$${validatedCustomerTotal.toFixed(2)}`,
-        },
-      );
-    }
-
-    if (!data.tracking) {
-      await logError(
-        interaction.client,
-        "Order Tracking Missing",
-        new Error("Tracking information is missing for this order."),
-        {
-          "Order ID": String(data.id),
-          User: interaction.user.id,
-          Status: "Tracking Unavailable",
         },
       );
     }
