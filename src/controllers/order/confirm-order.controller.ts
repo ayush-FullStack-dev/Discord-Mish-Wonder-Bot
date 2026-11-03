@@ -32,7 +32,7 @@ import { errorLog } from "../../../logs/printLogs.js";
 
 async function handleCreateAccount(interaction: ButtonInteraction) {
   try {
-    const chainId = await getBestChain("most_unused_credit");
+    const chainId = await getBestChain("most_unused");
 
     const chainAccounts = await UserChain.countDocuments({
       lastChain: chainId,
@@ -79,14 +79,18 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
   } catch (error) {
     errorLog("Account creation failed:", error);
 
-    await logError(interaction.client, "Account Creation Failed", error, {
-      User: interaction.user.id,
-      Action: "Create Next Account",
-      Status: "Failed",
-    });
+    return await logError(
+      interaction.client,
+      "Account Creation Failed",
+      error,
+      {
+        User: interaction.user.id,
+        Action: "Create Next Account",
+        Status: "Failed",
+      },
+    );
   }
 }
-
 export async function handleConfirmOrder(interaction: ButtonInteraction) {
   let claimedOrderId: typeof Order.prototype._id | null = null;
   let providerConfirmed = false;
@@ -303,9 +307,17 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
       activeCardId = newCard._id;
 
-      result = await editOrder(checkoutId, {
-        card: `${decrypt(newCard.encryptedCardNumber)},${newCard.expiryDate},${decrypt(newCard.encryptedCardCvv)},${newCard.zipcode}`,
-      });
+      try {
+        const editResult = await editOrder(checkoutId, {
+          card: `${decrypt(newCard.encryptedCardNumber)},${newCard.expiryDate},${decrypt(newCard.encryptedCardCvv)},${newCard.zipcode}`,
+        });
+
+        if (!editResult.ok) {
+          continue;
+        }
+
+        result = await confirmOrder(checkoutId);
+      } catch {}
     }
 
     if (!result.ok) {

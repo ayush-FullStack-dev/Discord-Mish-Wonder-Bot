@@ -7,7 +7,8 @@ type ChainSelectionMode =
   | "first_credit"
   | "has_credit"
   | "most_credit"
-  | "most_unused_credit";
+  | "most_unused_credit"
+  | "most_unused";
 
 function getAvailableCredit(chain: Chain): number {
   return chain.credit
@@ -24,38 +25,44 @@ export async function getBestChain(
 ): Promise<string> {
   try {
     const data = await getChains();
-    const chains: Chain[] = data.chains ?? [];
+
+    const chains: Chain[] = (data.chains ?? []).filter(
+      (chain: Chain) => chain.locked === false && chain.ready === true,
+    );
 
     let selectedChain: Chain | undefined;
 
     switch (mode) {
       case "first_credit":
-        selectedChain = chains.find(
-          (chain) => chain.credit.length > 0,
-        );
+        selectedChain = chains.find((chain) => chain.credit.length > 0);
         break;
 
       case "has_credit":
-        selectedChain = chains.find(
-          (chain) => getAvailableCredit(chain) > 0,
-        );
+        selectedChain = chains.find((chain) => getAvailableCredit(chain) > 0);
         break;
 
       case "most_credit":
         selectedChain = chains
           .filter((chain) => chain.credit.length > 0)
-          .toSorted(
-            (a, b) => getTotalCredit(b) - getTotalCredit(a),
-          )[0];
+          .toSorted((a, b) => getTotalCredit(b) - getTotalCredit(a))[0];
         break;
 
       case "most_unused_credit":
         selectedChain = chains
           .filter((chain) => getAvailableCredit(chain) > 0)
-          .toSorted(
-            (a, b) =>
-              getAvailableCredit(b) - getAvailableCredit(a),
-          )[0];
+          .toSorted((a, b) => getAvailableCredit(b) - getAvailableCredit(a))[0];
+        break;
+
+      case "most_unused":
+        selectedChain = chains
+          .filter((chain) => chain.unused > 0)
+          .toSorted((a, b) => b.unused - a.unused)[0];
+        break;
+
+      default:
+        selectedChain = chains
+          .filter((chain) => chain.unused > 0)
+          .toSorted((a, b) => b.unused - a.unused)[0];
         break;
     }
 

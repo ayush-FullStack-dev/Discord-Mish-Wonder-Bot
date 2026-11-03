@@ -50,6 +50,7 @@ export async function getChains() {
     return handleApiError(error);
   }
 }
+
 export async function getChainQueue() {
   try {
     const response = await api.get("/chains/queue");

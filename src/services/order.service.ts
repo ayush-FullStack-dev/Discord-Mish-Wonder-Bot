@@ -9,6 +9,7 @@ export const CARD_REJECTION_CODES = [
   "CARD_REJECTED",
   "FORTER_DECLINE",
   "CREDIT_NOT_SUPPORTED",
+  "PAYMENT_FAILED",
 ] as const;
 
 interface CreateOrderInput {
@@ -104,8 +105,7 @@ export async function createOrder(
   card: OrderCard,
 ): Promise<CreateOrderResult> {
   try {
-    const chainId = await getBestChain("most_unused_credit");
-
+    const chainId = await getBestChain("most_unused");
     const response = await axios.post<CheckoutData>(
       `${env.yonderApiBaseUrl}/checkouts`,
       {
@@ -360,12 +360,15 @@ export async function confirmOrder(id: string) {
       if (
         CARD_REJECTION_CODES.includes(
           code as (typeof CARD_REJECTION_CODES)[number],
-        )
+        ) ||
+        (code === "ORDER_FAILED" &&
+          typeof errorData.error === "string" &&
+          errorData.error.includes("PAYMENT_FAILED"))
       ) {
         return {
           ok: false as const,
           code: "PAYMENT_ERROR",
-          message: "Your payment method was declined.",
+          message: "Your payment could not be processed.",
         };
       }
 
@@ -451,5 +454,28 @@ export async function cancelOrder(id: string) {
       ok: false as const,
       message: getErrorMessage(error),
     };
+  }
+}
+
+export async function trackOrder(id: string) {
+  if (!id?.trim()) {
+    throw new Error("A valid tracking ID is required.");
+  }
+
+  try {
+    const response = await axios.get(
+      `${env.yonderApiBaseUrl}/track/${encodeURIComponent(id.trim())}`,
+      {
+        headers: {
+          Authorization: `Bearer ${env.yonderApiKey}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    return response.data;
+  } catch (error: unknown) {
+    errorLog(`Failed to track order ${id}: ${getErrorMessage(error)}`);
+    throw error;
   }
 }
