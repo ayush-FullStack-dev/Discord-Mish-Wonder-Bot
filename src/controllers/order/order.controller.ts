@@ -34,60 +34,7 @@ import {
 } from "../../constants/constant.js";
 import { getDiscountPercentage } from "../../services/discount.service.js";
 import { sendOrderExpired } from "../../ui/order/sendOrderExpired.js";
-
-const ORDER_ERRORS: Record<
-  string,
-  { title: string; description: string; footer: string }
-> = {
-  BAD_CART: {
-    title: "Invalid or Expired Cart Code",
-    description:
-      "Your cart code is invalid or has expired.\nPlease grab your cart again and enter a fresh code.",
-    footer: "Try again with a fresh cart code.",
-  },
-  CANNOT_PRICE: {
-    title: "Unable to Calculate Order Price",
-    description:
-      "We couldn't calculate the total price for your cart.\nPlease try again with a fresh cart or contact support.",
-    footer: "No order has been confirmed.",
-  },
-  CART_REQUIRED: {
-    title: "Cart Code Required",
-    description:
-      "We couldn't find a valid cart.\nPlease grab your cart again and submit its code.",
-    footer: "Make sure you copy the complete cart code.",
-  },
-  NO_CARD: {
-    title: "No Payment Method Available",
-    description:
-      "We couldn't prepare your checkout because no payment method is available.\nPlease contact support.",
-    footer: "Our support team can help.",
-  },
-  CARD_REQUIRED: {
-    title: "Payment Method Required",
-    description:
-      "A payment method is required for this checkout.\nPlease contact support for assistance.",
-    footer: "Contact support if you need help.",
-  },
-  UNAUTHORIZED: {
-    title: "Service Temporarily Unavailable",
-    description:
-      "We couldn't authenticate your checkout request.\nPlease try again later.",
-    footer: "Contact support if the issue persists.",
-  },
-  RATE_LIMITED: {
-    title: "Too Many Requests",
-    description:
-      "The checkout service is receiving too many requests.\nPlease wait a moment before trying again.",
-    footer: "Please try again shortly.",
-  },
-  UNKNOWN_ERROR: {
-    title: "Something Went Wrong",
-    description:
-      "We couldn't process your checkout request.\nPlease try again later.",
-    footer: "Contact support if the issue persists.",
-  },
-};
+import { ORDER_ERRORS } from "../../constants/errors.js";
 
 export async function handleOrderModal(interaction: ModalSubmitInteraction) {
   await attemptInteractionResponse(interaction, () =>
@@ -296,12 +243,15 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         );
       }
 
+      const errorConfig = ORDER_ERRORS[result.code];
+
       await sendError(interaction, {
-        ...(ORDER_ERRORS[result.code] ?? {
-          title: "Checkout Failed",
-          footer: "Contact support if the issue persists.",
-        }),
-        description: result.message ?? "An unexpected error occurred.",
+        title: errorConfig?.title ?? "Checkout Failed",
+        description:
+          result.message?.trim() ||
+          errorConfig?.description ||
+          "An unexpected error occurred.",
+        footer: errorConfig?.footer ?? "Contact support if the issue persists.",
       });
 
       return;
