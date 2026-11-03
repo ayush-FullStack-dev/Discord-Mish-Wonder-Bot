@@ -3,6 +3,14 @@ import { env } from "../config/env.js";
 import { errorLog } from "../../logs/printLogs.js";
 import { getBestChain } from "../utils/chain.js";
 
+export const CARD_REJECTION_CODES = [
+  "BAD_CARD",
+  "CARD_DECLINED",
+  "CARD_REJECTED",
+  "FORTER_DECLINE",
+  "CREDIT_NOT_SUPPORTED",
+] as const;
+
 interface CreateOrderInput {
   cartCode: string;
 }
@@ -44,6 +52,8 @@ export interface CheckoutData {
   tracking: string | null;
 }
 
+export type EditOrderPayload = Record<string, unknown>;
+
 export type OrderCard = {
   cardNumber: string;
   cvv: string;
@@ -60,6 +70,20 @@ export type CreateOrderResult =
   | {
       code: string;
       message: string;
+    };
+
+export type EditOrderResult =
+  | {
+      ok: true;
+      data: any;
+      code?: never;
+      message?: never;
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+      data?: never;
     };
 
 export async function createOrder(
@@ -86,13 +110,224 @@ export async function createOrder(
 
     const data: CheckoutData = response.data;
 
+    if (!data) {
+      throw new Error("INVALID_API_RESPONSE");
+    }
+
     return {
       code: null,
       message: "Your checkout is being prepared.",
       data,
     };
   } catch (error: unknown) {
-    console.log(error);
+    const code = axios.isAxiosError(error)
+      ? (error.response?.data?.code ?? "UNKNOWN_ERROR")
+      : error instanceof Error
+        ? error.message
+        : "UNKNOWN_ERROR";
+
+    const status = axios.isAxiosError(error)
+      ? error.response?.status
+      : undefined;
+
+    errorLog(`Failed to create checkout: code ${code}`);
+
+    if (
+      CARD_REJECTION_CODES.includes(
+        code as (typeof CARD_REJECTION_CODES)[number],
+      )
+    ) {
+      return {
+        code: "PAYMENT_ERROR",
+        message: "Your payment method was declined.",
+      };
+    }
+
+    if (code === "BAD_CART" || code === "CART_REQUIRED") {
+      return {
+        code: "BAD_CART",
+        message:
+          "Invalid or expired cart code. Please grab your cart again and enter the new code.",
+      };
+    }
+
+    if (code === "NO_CARD" || code === "CARD_REQUIRED") {
+      return {
+        code: "NO_CARD",
+        message: "No payment card is available. Please contact support.",
+      };
+    }
+
+    if (status === 401 || status === 403 || code === "UNAUTHORIZED") {
+      return {
+        code: "UNAUTHORIZED",
+        message: "API authentication failed. Please contact support.",
+      };
+    }
+
+    if (status === 429 || code === "RATE_LIMITED") {
+      return {
+        code: "RATE_LIMITED",
+        message: "Too many requests. Please try again later.",
+      };
+    }
+
+    return {
+      code:
+        code === "INVALID_API_RESPONSE"
+          ? "INVALID_API_RESPONSE"
+          : "UNKNOWN_ERROR",
+      message:
+        code === "INVALID_API_RESPONSE"
+          ? "The API returned an invalid response."
+          : "Failed to create checkout. Please try again later.",
+    };
+  }
+}
+
+export async function editOrder(
+  id: string,
+  payload: EditOrderPayload,
+): Promise<EditOrderResult> {
+  if (!id?.trim()) {
+    return {
+      ok: false,
+      code: "INVALID_CHECKOUT_ID",
+      message: "A valid checkout ID is required.",
+    };
+  }
+
+  try {
+    const response = await axios.patch(
+      `${env.yonderApiBaseUrl}/checkouts/${encodeURIComponent(id.trim())}`,
+      payload,
+      {
+        headers: {
+          Authorization: `Bearer ${env.yonderApiKey}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    const data = response.data;
+
+    if (!data) {
+      throw new Error("INVALID_API_RESPONSE");
+    }
+
+    if (data.ok === false) {
+      throw new Error(
+        typeof data.code === "string" ? data.code : "UPDATE_FAILED",
+      );
+    }
+
+    return {
+      ok: true,
+      data,
+    };
+  } catch (error: unknown) {
+    const code = axios.isAxiosError(error)
+      ? (error.response?.data?.code ?? "UNKNOWN_ERROR")
+      : error instanceof Error
+        ? error.message
+        : "UNKNOWN_ERROR";
+
+    errorLog(`Failed to edit checkout: code ${code}`);
+
+    if (
+      CARD_REJECTION_CODES.includes(
+        code as (typeof CARD_REJECTION_CODES)[number],
+      )
+    ) {
+      return {
+        ok: false,
+        code: "PAYMENT_ERROR",
+        message: "Your payment method was declined.",
+      };
+    }
+
+    if (code === "BAD_CART" || code === "CART_REQUIRED") {
+      return {
+        ok: false,
+        code: "BAD_CART",
+        message: "Invalid or expired cart code.",
+      };
+    }
+
+    if (code === "NO_CARD" || code === "CARD_REQUIRED") {
+      return {
+        ok: false,
+        code: "NO_CARD",
+        message: "No payment card is available. Please contact support.",
+      };
+    }
+
+    if (
+      (axios.isAxiosError(error) &&
+        (error.response?.status === 401 || error.response?.status === 403)) ||
+      code === "UNAUTHORIZED"
+    ) {
+      return {
+        ok: false,
+        code: "UNAUTHORIZED",
+        message: "API authentication failed. Please contact support.",
+      };
+    }
+
+    if (
+      (axios.isAxiosError(error) && error.response?.status === 429) ||
+      code === "RATE_LIMITED"
+    ) {
+      return {
+        ok: false,
+        code: "RATE_LIMITED",
+        message: "Too many requests. Please try again later.",
+      };
+    }
+
+    return {
+      ok: false,
+      code:
+        code === "INVALID_API_RESPONSE"
+          ? "INVALID_API_RESPONSE"
+          : "UPDATE_FAILED",
+      message:
+        code === "INVALID_API_RESPONSE"
+          ? "The API returned an invalid response."
+          : "Failed to update checkout. Please try again later.",
+    };
+  }
+}
+
+export type ConfirmOrderResult =
+  | {
+      ok: true;
+      data: any;
+    }
+  | {
+      ok: false;
+      message: string;
+      status?: number;
+    };
+
+export async function confirmOrder(id: string) {
+  try {
+    const response = await axios.post(
+      `${env.yonderApiBaseUrl}/checkouts/${encodeURIComponent(id)}/confirm`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${env.yonderApiKey}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    return {
+      ok: true as const,
+      data: response.data,
+    };
+  } catch (error: unknown) {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       const apiError: unknown = error.response?.data;
@@ -102,53 +337,50 @@ export async function createOrder(
           ? (apiError as Record<string, unknown>)
           : {};
 
-      const apiCode =
-        typeof errorData.code === "string" ? errorData.code : undefined;
+      const code =
+        typeof errorData.code === "string" ? errorData.code : "UNKNOWN_ERROR";
 
       const apiMessage =
-        typeof errorData.error === "string" ? errorData.error : undefined;
+        typeof errorData.message === "string"
+          ? errorData.message
+          : typeof errorData.error === "string"
+            ? errorData.error
+            : undefined;
 
-      if (apiCode === "BAD_CART" || apiCode === "CART_REQUIRED") {
+      if (
+        CARD_REJECTION_CODES.includes(
+          code as (typeof CARD_REJECTION_CODES)[number],
+        )
+      ) {
         return {
-          code: apiCode,
-          message:
-            "Invalid or expired cart code. Please grab your cart again and enter the new code.",
+          ok: false as const,
+          code: "PAYMENT_ERROR",
+          message: "Your payment method was declined.",
         };
       }
 
-      if (apiCode === "NO_CARD" || apiCode === "CARD_REQUIRED") {
-        return {
-          code: apiCode,
-          message: "No payment card is available. Please contact support.",
-        };
-      }
-
-      if (status === 401 || status === 403 || apiCode === "UNAUTHORIZED") {
-        return {
-          code: "UNAUTHORIZED",
-          message: "API authentication failed. Please contact support.",
-        };
-      }
-
-      if (status === 429 || apiCode === "RATE_LIMITED") {
-        return {
-          code: "RATE_LIMITED",
-          message: "Too many requests. Please try again later.",
-        };
-      }
+      errorLog(`Failed to confirm checkout ${id}: HTTP ${status ?? "unknown"}`);
 
       return {
-        code: apiCode ?? "UNKNOWN_ERROR",
+        ok: false as const,
         message:
-          apiMessage ?? "Failed to create checkout. Please try again later.",
+          apiMessage ??
+          (status === 404
+            ? "Checkout not found."
+            : status === 401 || status === 403
+              ? "Unable to authorize the confirmation request."
+              : status === 429
+                ? "Too many requests. Please try again shortly."
+                : "Failed to confirm your checkout. Please try again later."),
+        status,
       };
     }
 
-    errorLog(`Unexpected error creating order: ${String(error)}`);
+    errorLog(`Unexpected error confirming checkout ${id}: ${String(error)}`);
 
     return {
-      code: "UNKNOWN_ERROR",
-      message: "An unexpected error occurred. Please try again later.",
+      ok: false as const,
+      message: "An unexpected error occurred while confirming your checkout.",
     };
   }
 }
@@ -210,200 +442,6 @@ export async function cancelOrder(id: string) {
     return {
       ok: false as const,
       message: "An unexpected error occurred while cancelling your checkout.",
-    };
-  }
-}
-
-export type ConfirmOrderResult =
-  | {
-      ok: true;
-      data: any;
-    }
-  | {
-      ok: false;
-      message: string;
-      status?: number;
-    };
-
-export async function confirmOrder(id: string) {
-  try {
-    const response = await axios.post(
-      `${env.yonderApiBaseUrl}/checkouts/${encodeURIComponent(id)}/confirm`,
-      {},
-      {
-        headers: {
-          Authorization: `Bearer ${env.yonderApiKey}`,
-          "Content-Type": "application/json",
-        },
-      },
-    );
-
-    return {
-      ok: true as const,
-      data: response.data,
-    };
-  } catch (error: unknown) {
-    console.log(error);
-    if (axios.isAxiosError(error)) {
-      const status = error.response?.status;
-      const apiError: unknown = error.response?.data;
-
-      const errorData =
-        typeof apiError === "object" && apiError !== null
-          ? (apiError as Record<string, unknown>)
-          : {};
-
-      const apiMessage =
-        typeof errorData.message === "string"
-          ? errorData.message
-          : typeof errorData.error === "string"
-            ? errorData.error
-            : undefined;
-
-      errorLog(`Failed to cancel checkout ${id}: HTTP ${status ?? "unknown"}`);
-
-      return {
-        ok: false as const,
-        message:
-          apiMessage ??
-          (status === 404
-            ? "Checkout not found."
-            : status === 401 || status === 403
-              ? "Unable to authorize the cancellation request."
-              : status === 429
-                ? "Too many requests. Please try again shortly."
-                : "Failed to cancel your checkout. Please try again later."),
-        status,
-      };
-    }
-
-    errorLog(`Unexpected error cancelling checkout ${id}: ${String(error)}`);
-
-    return {
-      ok: false as const,
-      message: "An unexpected error occurred while cancelling your checkout.",
-    };
-  }
-}
-
-export type EditOrderPayload = Record<string, unknown>;
-
-export type EditOrderResult =
-  | {
-      ok: true;
-      data: any;
-      message?: never;
-      status?: never;
-    }
-  | {
-      ok: false;
-      message: string;
-      status: number | undefined;
-      data?: never;
-    }
-  | {
-      ok: false;
-      message: string;
-      data?: never;
-      status?: never;
-    };
-
-export async function editOrder(
-  id: string,
-  payload: EditOrderPayload,
-): Promise<EditOrderResult> {
-  if (!id?.trim()) {
-    return {
-      ok: false,
-      message: "A valid checkout ID is required.",
-    };
-  }
-
-  if (
-    !payload ||
-    typeof payload !== "object" ||
-    Array.isArray(payload) ||
-    Object.keys(payload).length === 0
-  ) {
-    return {
-      ok: false,
-      message: "Provide at least one field to update.",
-    };
-  }
-
-  try {
-    const response = await axios.patch(
-      `${env.yonderApiBaseUrl}/checkouts/${encodeURIComponent(id.trim())}`,
-      payload,
-      {
-        headers: {
-          Authorization: `Bearer ${env.yonderApiKey}`,
-          "Content-Type": "application/json",
-        },
-        timeout: 15000,
-      },
-    );
-
-    const data: unknown = response.data;
-
-    if (!data || typeof data !== "object" || Array.isArray(data)) {
-      return {
-        ok: false,
-        message: "The API returned an invalid response.",
-        status: response.status,
-      };
-    }
-
-    const result = data as Record<string, unknown>;
-
-    if (result.ok === false) {
-      return {
-        ok: false,
-        message:
-          typeof result.error === "string"
-            ? result.error
-            : "The checkout could not be updated.",
-        status: response.status,
-      };
-    }
-
-    return {
-      ok: true,
-      data,
-    };
-  } catch (error: unknown) {
-    if (axios.isAxiosError(error)) {
-      const status = error.response?.status;
-      const responseData: unknown = error.response?.data;
-
-      const errorData =
-        typeof responseData === "object" &&
-        responseData !== null &&
-        !Array.isArray(responseData)
-          ? (responseData as Record<string, unknown>)
-          : {};
-
-      const message =
-        typeof errorData.error === "string"
-          ? errorData.error
-          : typeof errorData.message === "string"
-            ? errorData.message
-            : "Failed to update checkout.";
-
-      errorLog(`Failed to edit checkout: HTTP ${status ?? "unknown"}`);
-
-      return {
-        ok: false,
-        message,
-        status,
-      };
-    }
-
-    errorLog("Unexpected error while editing checkout.");
-
-    return {
-      ok: false,
-      message: "An unexpected error occurred while updating checkout.",
     };
   }
 }

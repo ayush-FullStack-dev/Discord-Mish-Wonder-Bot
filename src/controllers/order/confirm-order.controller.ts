@@ -28,7 +28,10 @@ import { logSuccess, logError, logOrderSuccess } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { decrypt } from "../../utils/encryption.js";
 import { sendLoading } from "../../ui/utils/sendLoading.js";
-import { minChainAccountCount } from "../../constants/constant.js";
+import {
+  maxPaymentAttempts,
+  minChainAccountCount,
+} from "../../constants/constant.js";
 import { getBestChain } from "../../utils/chain.js";
 
 async function handleCreateAccount(interaction: ButtonInteraction) {
@@ -60,7 +63,6 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
 
         await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
         accountStatus = await getJobStatus(account.job);
-        console.log(accountStatus);
       }
     }
 
@@ -92,6 +94,7 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
 export async function handleConfirmOrder(interaction: ButtonInteraction) {
   let claimedOrderId: typeof Order.prototype._id | null = null;
   let providerConfirmed = false;
+  let paymentAttempts = 0;
 
   try {
     await attemptInteractionResponse(interaction, () =>
@@ -123,7 +126,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       return;
     }
 
-    const order = await Order.findOneAndUpdate(
+    let order = await Order.findOneAndUpdate(
       {
         checkoutId,
         discordUserId,
@@ -205,13 +208,70 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       return;
     }
 
+    let activeCardId = order.card?._id;
     let result = await confirmOrder(checkoutId);
 
-    if (result.data?.code === "FORTER_DECLINE") {
-      await Card.findByIdAndUpdate(order.card?._id, {
+    if (result.code === "PAYMENT_ERROR") {
+      await logError(
+        interaction.client,
+        "Payment Retry Started",
+        "The initial payment method was declined during order confirmation. Attempting alternative payment methods.",
+        {
+          User: interaction.user.id,
+          "Checkout ID": checkoutId,
+          "Maximum Attempts": String(maxPaymentAttempts),
+        },
+      );
+
+      await sendLoading(interaction, {
+        title: "Trying Another Payment Method",
+        description: [
+          "**Your payment couldn't be processed with the current card.**",
+          "",
+          "We're trying another available payment method to complete your order.",
+          "Please wait while we process your confirmation.",
+        ].join("\n"),
+        footer: "You don't need to confirm your order again.",
+        ephemeral: false,
+      });
+    }
+
+    while (
+      result.code === "PAYMENT_ERROR" &&
+      paymentAttempts < maxPaymentAttempts
+    ) {
+      paymentAttempts++;
+      await Card.findByIdAndUpdate(activeCardId, {
         isLocked: false,
         status: "blocked",
       });
+
+      if (paymentAttempts >= maxPaymentAttempts) {
+        await logError(
+          interaction.client,
+          "Payment Retry Limit Reached",
+          "All payment attempts failed. Every declined payment method has been blocked.",
+          {
+            User: interaction.user.id,
+            "Checkout ID": checkoutId,
+            "Failed Attempts": String(paymentAttempts),
+            Status: "Maximum payment attempts reached",
+          },
+        );
+
+        await sendError(interaction, {
+          title: "Unable to Confirm Your Order",
+          description: [
+            "We tried multiple payment methods, but your payment couldn't be approved.",
+            "",
+            "Please contact support for assistance with your order.",
+          ].join("\n"),
+          footer: "Your order has not been marked as confirmed.",
+          ephemeral: false,
+        });
+
+        return;
+      }
 
       const newCard = await Card.findOne({
         isLocked: false,
@@ -219,61 +279,37 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       }).sort({ isPin: -1 });
 
       if (!newCard) {
-        await sendError(interaction, {
-          title: "No Cards Available",
-          description:
-            "No payment methods are currently available. Our team is working on adding more cards. Please try again later.",
-          footer: "Please wait until more cards become available.",
-        });
-
         await logError(
           interaction.client,
           "No Cards Available",
-          "No active cards are available. New cards need to be added to restore order processing.",
+          "No active payment methods are available for another confirmation attempt.",
           {
             User: interaction.user.id,
-            Action: "Add new cards",
-            Status: "No active cards available",
+            "Checkout ID": checkoutId,
+            "Failed Attempts": String(paymentAttempts),
           },
         );
+
+        await sendError(interaction, {
+          title: "No Payment Methods Available",
+          description:
+            "We couldn't find another available payment method to complete your order. Please contact support.",
+          footer: "Our team can help you complete your order.",
+          ephemeral: false,
+        });
 
         return;
       }
 
-      await Order.findByIdAndUpdate(order._id, { card: newCard._id });
+      await Order.findByIdAndUpdate(order._id, {
+        card: newCard._id,
+      });
 
-      if (result.data?.retryable) {
-        result = await editOrder(checkoutId, {
-          card: `${decrypt(newCard.encryptedCardNumber)},${newCard.expiryDate},${decrypt(newCard.encryptedCardCvv)},${newCard.zipcode}`,
-        });
+      activeCardId = newCard._id;
 
-        if (result.data?.code === "FORTER_DECLINE") {
-          await Card.findByIdAndUpdate(newCard._id, {
-            isLocked: false,
-            status: "blocked",
-          });
-
-          await sendError(interaction, {
-            title: "Payment Declined",
-            description:
-              "Your payment was declined by our security verification system. Please try again later or contact support.",
-            footer: "Your order could not be completed.",
-          });
-
-          return await logError(
-            interaction.client,
-            "Forter Decline - Retry Failed",
-            "Payment was declined again by Forter after switching to a new card.",
-            {
-              User: interaction.user.id,
-              "Checkout ID": checkoutId,
-              "Card ID": newCard._id.toString(),
-              Action: "Card blocked after retry",
-              Status: "FORTER_DECLINE",
-            },
-          );
-        }
-      }
+      result = await editOrder(checkoutId, {
+        card: `${decrypt(newCard.encryptedCardNumber)},${newCard.expiryDate},${decrypt(newCard.encryptedCardCvv)},${newCard.zipcode}`,
+      });
     }
 
     if (!result.ok) {
@@ -302,7 +338,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     try {
       await Card.findOneAndUpdate(
-        { _id: order.card?._id },
+        { _id: activeCardId },
         { $set: { isLocked: false } },
       );
     } catch (error) {

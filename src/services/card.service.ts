@@ -1,5 +1,3 @@
-import axios from "axios";
-import { env } from "../config/env.js";
 import { Card } from "../models/card.model.js";
 import { Order } from "../models/order.model.js";
 import { encrypt } from "../utils/encryption.js";
