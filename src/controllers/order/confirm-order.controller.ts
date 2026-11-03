@@ -307,17 +307,31 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
       activeCardId = newCard._id;
 
-      try {
-        const editResult = await editOrder(checkoutId, {
-          card: `${decrypt(newCard.encryptedCardNumber)},${newCard.expiryDate},${decrypt(newCard.encryptedCardCvv)},${newCard.zipcode}`,
+      const editResult = await editOrder(checkoutId, {
+        card: `${decrypt(newCard.encryptedCardNumber)},${newCard.expiryDate},${decrypt(newCard.encryptedCardCvv)},${newCard.zipcode}`,
+      });
+
+      if (!editResult.ok) {
+        await sendError(interaction, {
+          title: "Checkout Update Failed",
+          description: editResult.message,
+          footer: "Order confirmation was stopped.",
+          ephemeral: false,
         });
 
-        if (!editResult.ok) {
-          continue;
-        }
+        return await logError(
+          interaction.client,
+          "Checkout Edit Failed",
+          editResult.message,
+          {
+            User: interaction.user.id,
+            "Checkout ID": checkoutId,
+            "Error Code": editResult.code,
+          },
+        );
+      }
 
-        result = await confirmOrder(checkoutId);
-      } catch {}
+      result = await confirmOrder(checkoutId);
     }
 
     if (!result.ok) {
