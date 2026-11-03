@@ -29,33 +29,11 @@ import { Card } from "../../models/card.model.js";
 import { decrypt } from "../../utils/encryption.js";
 import { sendLoading } from "../../ui/utils/sendLoading.js";
 import { minChainAccountCount } from "../../constants/constant.js";
-import type { Chain } from "../../types/index.js";
+import { getBestChain } from "../../utils/chain.js";
 
 async function handleCreateAccount(interaction: ButtonInteraction) {
   try {
-    let chainId = "1";
-
-    try {
-      const data = await getChains();
-      chainId = String(
-        data.chains.find((chain: Chain) => chain.credit?.length)?.chain,
-      );
-
-      if (!chainId) throw new Error("No chain found with credit");
-    } catch {
-      let oldChain = await UserChain.findOne()
-        .sort({ updatedAt: -1 })
-        .select("lastChain -_id")
-        .lean();
-
-      try {
-        oldChain = await UserChain.findOne()
-          .sort({ updatedAt: -1 })
-          .select("lastChain -_id")
-          .lean();
-      } catch {}
-      chainId = String(oldChain?.lastChain || "1");
-    }
+    const chainId = await getBestChain("most_unused_credit");
 
     const chainAccounts = await UserChain.countDocuments({
       lastChain: chainId,

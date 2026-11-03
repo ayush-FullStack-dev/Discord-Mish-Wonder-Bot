@@ -1,6 +1,7 @@
 import axios from "axios";
 import { env } from "../config/env.js";
 import { errorLog } from "../../logs/printLogs.js";
+import { getBestChain } from "../utils/chain.js";
 
 interface CreateOrderInput {
   cartCode: string;
@@ -66,12 +67,14 @@ export async function createOrder(
   card: OrderCard,
 ): Promise<CreateOrderResult> {
   try {
+    const chainId = await getBestChain("most_unused_credit");
+
     const response = await axios.post<CheckoutData>(
       `${env.yonderApiBaseUrl}/checkouts`,
       {
         cart_code: input.cartCode,
         card: `${card.cardNumber},${card.expiryDate},${card.cvv},${card.zipcode}`,
-        use_credit: true,
+        chain: chainId,
       },
       {
         headers: {
@@ -89,6 +92,7 @@ export async function createOrder(
       data,
     };
   } catch (error: unknown) {
+    console.log(error);
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       const apiError: unknown = error.response?.data;
