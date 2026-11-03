@@ -45,6 +45,12 @@ const ORDER_ERRORS: Record<
       "Your cart code is invalid or has expired.\nPlease grab your cart again and enter a fresh code.",
     footer: "Try again with a fresh cart code.",
   },
+  CANNOT_PRICE: {
+    title: "Unable to Calculate Order Price",
+    description:
+      "We couldn't calculate the total price for your cart.\nPlease try again with a fresh cart or contact support.",
+    footer: "No order has been confirmed.",
+  },
   CART_REQUIRED: {
     title: "Cart Code Required",
     description:
@@ -290,14 +296,13 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         );
       }
 
-      await sendError(
-        interaction,
-        ORDER_ERRORS[result.code] ?? {
+      await sendError(interaction, {
+        ...(ORDER_ERRORS[result.code] ?? {
           title: "Checkout Failed",
-          description: result.message,
           footer: "Contact support if the issue persists.",
-        },
-      );
+        }),
+        description: result.message ?? "An unexpected error occurred.",
+      });
 
       return;
     }

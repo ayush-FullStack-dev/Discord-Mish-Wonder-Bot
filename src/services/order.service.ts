@@ -86,6 +86,19 @@ export type EditOrderResult =
       data?: never;
     };
 
+function getErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data;
+
+    if (typeof data?.message === "string") return data.message;
+    if (typeof data?.error === "string") return data.error;
+
+    return error.message;
+  }
+
+  return error instanceof Error ? error.message : String(error);
+}
+
 export async function createOrder(
   input: CreateOrderInput,
   card: OrderCard,
@@ -120,6 +133,7 @@ export async function createOrder(
       data,
     };
   } catch (error: unknown) {
+    console.log(error);
     const code = axios.isAxiosError(error)
       ? (error.response?.data?.code ?? "UNKNOWN_ERROR")
       : error instanceof Error
@@ -172,15 +186,17 @@ export async function createOrder(
       };
     }
 
+    const errorMessage = axios.isAxiosError(error)
+      ? (error.response?.data?.message ??
+        error.response?.data?.error ??
+        error.message)
+      : error instanceof Error
+        ? error.message
+        : String(error);
+
     return {
-      code:
-        code === "INVALID_API_RESPONSE"
-          ? "INVALID_API_RESPONSE"
-          : "UNKNOWN_ERROR",
-      message:
-        code === "INVALID_API_RESPONSE"
-          ? "The API returned an invalid response."
-          : "Failed to create checkout. Please try again later.",
+      code,
+      message: getErrorMessage(error),
     };
   }
 }
@@ -287,14 +303,8 @@ export async function editOrder(
 
     return {
       ok: false,
-      code:
-        code === "INVALID_API_RESPONSE"
-          ? "INVALID_API_RESPONSE"
-          : "UPDATE_FAILED",
-      message:
-        code === "INVALID_API_RESPONSE"
-          ? "The API returned an invalid response."
-          : "Failed to update checkout. Please try again later.",
+      code: code === "INVALID_API_RESPONSE" ? code : "UPDATE_FAILED",
+      message: getErrorMessage(error),
     };
   }
 }
@@ -380,7 +390,7 @@ export async function confirmOrder(id: string) {
 
     return {
       ok: false as const,
-      message: "An unexpected error occurred while confirming your checkout.",
+      message: getErrorMessage(error),
     };
   }
 }
@@ -441,7 +451,7 @@ export async function cancelOrder(id: string) {
 
     return {
       ok: false as const,
-      message: "An unexpected error occurred while cancelling your checkout.",
+      message: getErrorMessage(error),
     };
   }
 }
