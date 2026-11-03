@@ -71,6 +71,7 @@ export async function createOrder(
       {
         cart_code: input.cartCode,
         card: `${card.cardNumber},${card.expiryDate},${card.cvv},${card.zipcode}`,
+        use_credit: true,
       },
       {
         headers: {

@@ -11,3 +11,19 @@ export interface ICard {
   lastUsedBy?: string;
   isPin?: boolean;
 }
+
+export type ChainCredit = {
+  account: string;
+  credit: number;
+  used: boolean;
+};
+
+export type Chain = {
+  chain: string;
+  accounts: number;
+  unused: number;
+  locked: boolean;
+  next_account: string;
+  ready: boolean;
+  credit: ChainCredit[];
+};

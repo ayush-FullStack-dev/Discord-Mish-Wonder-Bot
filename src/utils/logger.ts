@@ -113,9 +113,11 @@ export async function logOrderSuccess(
       )
       .addSeparatorComponents(
         new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small),
+      )
+      .addSeparatorComponents(
+        new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small),
       );
 
-    // Tracking section (no separator below)
     addTrackingSection(container, tracking);
 
     const entries = Object.entries(details ?? {});

@@ -41,7 +41,6 @@ export async function getAccounts() {
     return handleApiError(error);
   }
 }
-
 export async function getChains() {
   try {
     const response = await api.get("/chains");

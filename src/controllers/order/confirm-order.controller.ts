@@ -6,6 +6,7 @@ import {
 } from "discord.js";
 import {
   accountConfigure,
+  getChains,
   getJobStatus,
 } from "../../services/account.service.js";
 import { UserChain } from "../../models/userChain.model.js";
@@ -27,32 +28,44 @@ import { logSuccess, logError, logOrderSuccess } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { decrypt } from "../../utils/encryption.js";
 import { sendLoading } from "../../ui/utils/sendLoading.js";
-import { env } from "../../config/env.js";
 import { minChainAccountCount } from "../../constants/constant.js";
+import type { Chain } from "../../types/index.js";
 
 async function handleCreateAccount(interaction: ButtonInteraction) {
   try {
-    const oldChain = await UserChain.findOne()
-      .sort({ updatedAt: -1 })
-      .select("lastChain -_id")
-      .lean();
+    let chainId = "1";
 
-    let lastChain = oldChain?.lastChain || "1";
-    let count = 1;
+    try {
+      const data = await getChains();
+      chainId = String(
+        data.chains.find((chain: Chain) => chain.credit?.length)?.chain,
+      );
 
-    if (oldChain) {
-      const chainAccounts = await UserChain.countDocuments({ lastChain });
+      if (!chainId) throw new Error("No chain found with credit");
+    } catch {
+      let oldChain = await UserChain.findOne()
+        .sort({ updatedAt: -1 })
+        .select("lastChain -_id")
+        .lean();
 
-      if (chainAccounts >= env.maxChainAccounts) {
-        const parsedChain = Number(lastChain);
-        lastChain = String(Number.isFinite(parsedChain) ? parsedChain + 1 : 1);
-        count = minChainAccountCount;
-      }
+      try {
+        oldChain = await UserChain.findOne()
+          .sort({ updatedAt: -1 })
+          .select("lastChain -_id")
+          .lean();
+      } catch {}
+      chainId = String(oldChain?.lastChain || "1");
     }
+
+    const chainAccounts = await UserChain.countDocuments({
+      lastChain: chainId,
+    });
+    const count =
+      chainId === "1" ? 1 : Math.max(1, minChainAccountCount - chainAccounts);
 
     const account = await accountConfigure({
       count,
-      chain: lastChain,
+      chain: chainId,
     });
 
     if (!account.ok) {
@@ -69,22 +82,24 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
 
         await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
         accountStatus = await getJobStatus(account.job);
+        console.log(accountStatus);
       }
     }
 
-    await UserChain.create({ lastChain });
+    await UserChain.create({ lastChain: chainId });
+    const isNewChain = count === 3;
 
-    if (count === 3) {
-      await logSuccess(
-        interaction.client,
-        "New Chain Created",
-        `A new account chain (${lastChain}) was created with ${count} accounts.`,
-        {
-          "Chain ID": lastChain,
-          "Accounts Created": String(count),
-        },
-      );
-    }
+    return logSuccess(
+      interaction.client,
+      isNewChain ? "New Chain Created" : "Chain Updated",
+      isNewChain
+        ? `A new account chain (${chainId}) was created with ${count} accounts.`
+        : `${count} account(s) added to chain (${chainId}).`,
+      {
+        "Chain ID": chainId,
+        "Accounts Created": String(count),
+      },
+    );
   } catch (error) {
     console.error("Account creation failed:", error);
 
