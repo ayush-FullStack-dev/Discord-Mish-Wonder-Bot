@@ -1,4 +1,5 @@
 import { ChannelType, MessageFlags, type ButtonInteraction } from "discord.js";
+import { errorLog } from "../../logs/printLogs.js";
 
 interface DeleteOrderTicketOptions {
   reason?: string;
@@ -29,11 +30,11 @@ export async function deleteOrderTicket(
 
     setTimeout(() => {
       void channel.delete(reason).catch((error: unknown) => {
-        console.error("Failed to delete order ticket:", error);
+        errorLog("Failed to delete order ticket:", error);
       });
     }, delay);
   } catch (error) {
-    console.error("Failed to schedule order ticket deletion:", error);
+    errorLog("Failed to schedule order ticket deletion:", error);
     await interaction
       .reply({
         content: `Failed to close the order: ${

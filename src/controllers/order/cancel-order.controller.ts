@@ -10,6 +10,7 @@ import {
 import { deleteOrderTicket } from "../../helpers/deleteOrderTicket.js";
 import { logSuccess, logError } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
+import { errorLog } from "../../../logs/printLogs.js";
 
 export async function handleCancelOrder(interaction: ButtonInteraction) {
   const displayName =
@@ -199,7 +200,7 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
       User: interaction.user.id,
     });
 
-    console.error("Unexpected error in handleCancelOrder:", error);
+    errorLog("Unexpected error in handleCancelOrder:", error);
 
     await handleInteractionError(
       interaction,

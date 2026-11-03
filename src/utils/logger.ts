@@ -14,6 +14,7 @@ import { env } from "../config/env.js";
 import { sendSuccess } from "../ui/utils/sendSuccess.js";
 import { sendError } from "../ui/utils/sendError.js";
 import { PING_ROLESID } from "../constants/constant.js";
+import { errorLog } from "../../logs/printLogs.js";
 
 type LogOptions = {
   title: string;
@@ -32,7 +33,7 @@ async function sendLog(
     const channel = await client.channels.fetch(channelId);
 
     if (!channel?.isTextBased() || !("send" in channel)) {
-      console.error(
+      errorLog(
         `Discord log channel ${channelId} is unavailable or not text-based.`,
       );
       return;
@@ -70,7 +71,7 @@ async function sendLog(
       },
     });
   } catch (error) {
-    console.error("Failed to send Discord log:", error);
+    errorLog("Failed to send Discord log:", error);
   }
 }
 
@@ -100,7 +101,7 @@ export async function logOrderSuccess(
     const channel = await client.channels.fetch(env.successChannelId);
 
     if (!channel?.isTextBased() || !("send" in channel)) {
-      console.error("Success log channel unavailable.");
+      errorLog("Success log channel unavailable.");
       return;
     }
 
@@ -152,7 +153,7 @@ export async function logOrderSuccess(
       flags: MessageFlags.IsComponentsV2,
     });
   } catch (error) {
-    console.error("Failed to send order success log:", error);
+    errorLog("Failed to send order success log:", error);
   }
 }
 
@@ -166,7 +167,7 @@ async function sendSuccessLog(
     const channel = await client.channels.fetch(env.successChannelId);
 
     if (!channel?.isTextBased() || !("send" in channel)) {
-      console.error(
+      errorLog(
         `Discord success channel ${env.successChannelId} is unavailable or not text-based.`,
       );
       return;
@@ -222,7 +223,7 @@ async function sendSuccessLog(
       flags: MessageFlags.IsComponentsV2,
     });
   } catch (error) {
-    console.error("Failed to send Discord success log:", error);
+    errorLog("Failed to send Discord success log:", error);
   }
 }
 

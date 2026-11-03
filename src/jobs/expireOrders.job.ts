@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import { Order } from "../models/order.model.js";
 import { releaseCardLockIfUnused } from "../services/card.service.js";
+import { errorLog } from "../../logs/printLogs.js";
 
 export function startExpireOrdersJob() {
   cron.schedule("*/5 * * * *", async () => {
@@ -39,7 +40,7 @@ export function startExpireOrdersJob() {
         await releaseCardLockIfUnused(cardId);
       }
     } catch (error) {
-      console.error("Failed to expire pending orders:", error);
+      errorLog("Failed to expire pending orders:", error);
     }
   });
 }

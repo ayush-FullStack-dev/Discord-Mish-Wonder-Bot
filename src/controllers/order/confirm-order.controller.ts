@@ -6,7 +6,6 @@ import {
 } from "discord.js";
 import {
   accountConfigure,
-  getChains,
   getJobStatus,
 } from "../../services/account.service.js";
 import { UserChain } from "../../models/userChain.model.js";
@@ -19,11 +18,7 @@ import {
   handleInteractionError,
 } from "../../utils/error-handler.js";
 import { deductBalance, getBalance } from "../../services/balance.service.js";
-import {
-  calculateDiscountedOrderPrice,
-  centsToDollars,
-  dollarsToCents,
-} from "../../utils/util.js";
+import { centsToDollars, dollarsToCents } from "../../utils/util.js";
 import { logSuccess, logError, logOrderSuccess } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { decrypt } from "../../utils/encryption.js";
@@ -33,6 +28,7 @@ import {
   minChainAccountCount,
 } from "../../constants/constant.js";
 import { getBestChain } from "../../utils/chain.js";
+import { errorLog } from "../../../logs/printLogs.js";
 
 async function handleCreateAccount(interaction: ButtonInteraction) {
   try {
@@ -81,7 +77,7 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
       },
     );
   } catch (error) {
-    console.error("Account creation failed:", error);
+    errorLog("Account creation failed:", error);
 
     await logError(interaction.client, "Account Creation Failed", error, {
       User: interaction.user.id,
@@ -339,10 +335,9 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     try {
       await Card.findOneAndUpdate(
         { _id: activeCardId },
-        { $set: { isLocked: false } },
+        { $set: { isLocked: false, lastUsedBy: discordUserId } },
       );
     } catch (error) {
-      console.error("Failed to unlock card after order confirmation:", error);
       await logError(interaction.client, "Card Unlock Failed", error, {
         User: discordUserId,
         "Checkout ID": checkoutId,
@@ -350,92 +345,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       });
     }
 
-    let discountedPrice: ReturnType<typeof calculateDiscountedOrderPrice>;
-    try {
-      discountedPrice = calculateDiscountedOrderPrice(
-        {
-          subtotal: data.price.subtotal,
-          service: data.price.service,
-          delivery: data.price.delivery,
-        },
-        order.discountPercentage,
-      );
-    } catch (error) {
-      const reconciliationError = `Provider confirmed order ${data.order_id}, but its customer price could not be calculated.`;
-
-      await logError(
-        interaction.client,
-        "Payment Reconciliation Required",
-        error,
-        {
-          User: discordUserId,
-          "Checkout ID": checkoutId,
-          "Order ID": data.order_id,
-          Error: reconciliationError,
-        },
-      );
-      await sendError(interaction, {
-        title: "Payment Reconciliation Required",
-        description:
-          "Your order was confirmed, but its final total could not be calculated. Support has been notified; no wallet payment was taken.",
-        footer: "Please contact support before attempting another payment.",
-        ephemeral: false,
-      });
-      return;
-    }
-
-    const calculatedTotal = discountedPrice.total;
-
-    if (!Number.isFinite(calculatedTotal) || calculatedTotal < 0) {
-      const reconciliationError = `Provider confirmed order ${data.order_id}, but its calculated customer total is invalid: $${calculatedTotal}.`;
-
-      await logError(
-        interaction.client,
-        "Payment Reconciliation Required",
-        reconciliationError,
-        {
-          User: discordUserId,
-          "Checkout ID": checkoutId,
-          "Order ID": data.order_id,
-          "Calculated Total": String(calculatedTotal),
-        },
-      );
-      await sendError(interaction, {
-        title: "Payment Reconciliation Required",
-        description:
-          "Your order was confirmed, but its final total could not be calculated. Support has been notified.",
-        footer: "Please contact support before retrying payment.",
-        ephemeral: false,
-      });
-      return;
-    }
-
-    const calculatedTotalCents = dollarsToCents(calculatedTotal);
     const expectedTotalCents = dollarsToCents(order.total);
-    if (expectedTotalCents !== calculatedTotalCents) {
-      const reconciliationError = `Provider-confirmed total for order ${data.order_id} differs from the checkout amount. Checkout: $${order.total.toFixed(2)}, confirmed: $${calculatedTotal.toFixed(2)}.`;
-
-      await logError(
-        interaction.client,
-        "Payment Reconciliation Required",
-        reconciliationError,
-        {
-          User: discordUserId,
-          "Checkout ID": checkoutId,
-          "Order ID": data.order_id,
-          "Checkout Total": `$${order.total.toFixed(2)}`,
-          "Confirmed Total": `$${calculatedTotal.toFixed(2)}`,
-        },
-      );
-      await sendError(interaction, {
-        title: "Payment Reconciliation Required",
-        description:
-          "The confirmed order price differs from the checkout price. Support has been notified and no wallet payment was taken.",
-        footer: "Please contact support before attempting another payment.",
-        ephemeral: false,
-      });
-      return;
-    }
 
     const validatedCustomerTotal = order.total;
     const orderTotalCents = expectedTotalCents;
@@ -464,7 +374,8 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           Total: `$${validatedCustomerTotal.toFixed(2)}`,
         },
       );
-      console.error(`[RECONCILIATION REQUIRED] ${reconciliationMessage}`);
+
+      errorLog(`[RECONCILIATION REQUIRED] ${reconciliationMessage}`);
     }
     await logOrderSuccess(
       interaction.client,
@@ -510,7 +421,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           remainingBalance === null ? "" : " after wallet deduction"
         }. Checkout: ${checkoutId}`;
 
-        console.error(`[RECONCILIATION REQUIRED] ${reconciliationError}`);
+        errorLog(`[RECONCILIATION REQUIRED] ${reconciliationError}`);
         await logError(
           interaction.client,
           "Order Reconciliation Required",
@@ -524,7 +435,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         );
       }
     } catch (error) {
-      console.error(
+      errorLog(
         `[RECONCILIATION REQUIRED] Provider order ${data.order_id} is confirmed, but the local DB update failed${
           remainingBalance === null ? "" : " after wallet deduction"
         }. Checkout: ${checkoutId}`,
@@ -596,7 +507,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       User: interaction.user.id,
     });
 
-    console.error("Failed to confirm order:", error);
+    errorLog("Failed to confirm order:", error);
 
     await handleInteractionError(interaction, error, "Failed to confirm order");
   } finally {
@@ -611,7 +522,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           $set: { confirming: false },
         },
       ).catch((error) => {
-        console.error("Failed to release confirmation lock:", error);
+        errorLog("Failed to release confirmation lock:", error);
       });
     }
   }

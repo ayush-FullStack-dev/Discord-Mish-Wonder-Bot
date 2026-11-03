@@ -1,5 +1,6 @@
 import axios from "axios";
 import { env } from "../config/env.js";
+import { errorLog, success } from "../../logs/printLogs.js";
 
 const api = axios.create({
   baseURL: env.yonderApiBaseUrl,
@@ -103,7 +104,6 @@ export async function createAccountsOnChain({
         await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
 
         accountStatus = await getJobStatus(account.job);
-        console.log(accountStatus);
       }
 
       if (!accountStatus.ok) {
@@ -111,15 +111,14 @@ export async function createAccountsOnChain({
       }
     }
 
-    console.log(`Successfully created ${count} accounts on chain ${chain}.`);
-
+    success(`Successfully created ${count} accounts on chain ${chain}.`);
     return {
       ok: true,
       chain,
       count,
     };
   } catch (error) {
-    console.error("Account creation failed:", error);
+    errorLog("Account creation failed:", error);
     return {
       ok: false,
       error: error instanceof Error ? error.message : "Unknown error",

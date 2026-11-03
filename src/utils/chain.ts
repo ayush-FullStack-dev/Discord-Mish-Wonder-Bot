@@ -1,6 +1,7 @@
 import { getChains } from "../services/account.service.js";
 import { UserChain } from "../models/userChain.model.js";
 import type { Chain } from "../types/index.js";
+import { errorLog } from "../../logs/printLogs.js";
 
 type ChainSelectionMode =
   | "first_credit"
@@ -62,7 +63,7 @@ export async function getBestChain(
       return String(selectedChain.chain);
     }
   } catch (error) {
-    console.error("Failed to fetch chains from API:", error);
+    errorLog("Failed to fetch chains from API:", error);
   }
 
   try {
@@ -73,7 +74,7 @@ export async function getBestChain(
 
     return String(oldChain?.lastChain || "1");
   } catch (error) {
-    console.error("Failed to fetch last chain from database:", error);
+    errorLog("Failed to fetch last chain from database:", error);
   }
 
   return "1";
