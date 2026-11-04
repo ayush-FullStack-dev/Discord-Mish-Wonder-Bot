@@ -263,7 +263,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
             checkoutId = data.id;
           }
         }
-      } catch  {
+      } catch {
       } finally {
         await logError(
           interaction.client,
@@ -289,8 +289,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         });
       }
     }
-
-    let editOrderAttempts = 0;
 
     while (
       result.code === "PAYMENT_ERROR" &&
@@ -356,48 +354,21 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
         return;
       }
-
-      await Order.findByIdAndUpdate(order._id, {
-        card: newCard._id,
-      });
-
-      activeCardId = newCard._id;
-
       const editResult = await editOrder(checkoutId, {
         card: `${decrypt(newCard.encryptedCardNumber)},${newCard.expiryDate},${decrypt(newCard.encryptedCardCvv)},${newCard.zipcode}`,
       });
 
       if (!editResult.ok) {
-        editOrderAttempts++;
-
         errorLog(
-          `[ORDER] Checkout edit failed | Attempt: ${editOrderAttempts} | Checkout: ${checkoutId} | Error: ${editResult.message}`,
+          `[ORDER] Checkout edit failed | Checkout: ${checkoutId} | Error: ${editResult.message}`,
         );
-
-        if (editOrderAttempts >= 3) {
-          await sendError(interaction, {
-            title: "Checkout Update Failed",
-            description: editResult.message,
-            footer: "Order confirmation was stopped.",
-            ephemeral: false,
-          });
-
-          return await logError(
-            interaction.client,
-            "Checkout Edit Failed",
-            editResult.message,
-            {
-              User: interaction.user.id,
-              "Checkout ID": checkoutId,
-              "Error Code": editResult.code,
-              "Failed Attempts": String(editOrderAttempts),
-            },
-          );
-        }
-
         continue;
       }
 
+      activeCardId = newCard._id;
+      await Order.findByIdAndUpdate(order._id, {
+        card: newCard._id,
+      });
       result = await confirmOrder(checkoutId);
     }
 
