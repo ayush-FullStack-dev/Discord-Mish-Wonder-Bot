@@ -6,6 +6,7 @@ import {
   MessageFlags,
   type Message,
 } from "discord.js";
+import { env } from "../../config/env.js";
 
 type SendOrderExpiredOptions = {
   replyTo: Message;
@@ -30,7 +31,17 @@ export async function sendOrderExpired({
     )
     .addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        "Your order has expired. Please create a new one.",
+        [
+          "Your checkout session has expired due to inactivity.",
+          "",
+          "This order is no longer active, and its checkout session has been closed.",
+          "",
+          "**What to do next?**",
+          "- Place a new order using the same cart code, if it's still valid.",
+          "- Alternatively, use a different cart code to start a new order.",
+          "",
+          `Head over to <#${env.shopChannelId}> to place your new order.`,
+        ].join("\n"),
       ),
     )
     .addSeparatorComponents(
@@ -40,7 +51,7 @@ export async function sendOrderExpired({
     )
     .addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `-# Orders expire after ${expiresIn + 20} seconds of inactivity`,
+        `-# Checkout sessions expire after ${expiresIn + 20} seconds of inactivity. Please complete your checkout before the timer runs out.`,
       ),
     );
 
