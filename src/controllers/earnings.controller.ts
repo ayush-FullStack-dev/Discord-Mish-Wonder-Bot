@@ -8,6 +8,7 @@ import {
 import { Order } from "../models/order.model.js";
 import { logError } from "../utils/logger.js";
 import { requireAdmin } from "../middleware.js";
+import { ADMIN_USERID } from "../constants/constant.js";
 
 const BOT_OWNER_ID = "1525807833277268060";
 const TIMEZONE = "Asia/Kolkata";
@@ -185,13 +186,13 @@ export async function handleEarnings(
     const { start, end, label } = getDateRange(mode, now);
 
     const showProfit = interaction.user.id === BOT_OWNER_ID;
-
     const orders = await Order.find({
       createdAt: {
         $gte: start,
         $lt: end,
       },
       status: "confirmed",
+      discordUserId: { $nin: ADMIN_USERID },
     })
       .select(showProfit ? "total cost" : "total")
       .lean();
