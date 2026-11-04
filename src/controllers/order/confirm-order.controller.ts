@@ -4,9 +4,7 @@ import {
   MessageFlags,
   type ButtonInteraction,
 } from "discord.js";
-import {
-  createAccountsOnChain,
-} from "../../services/account.service.js";
+import { createAccountsOnChain } from "../../services/account.service.js";
 import { UserChain } from "../../models/userChain.model.js";
 import { Order } from "../../models/order.model.js";
 import {
@@ -164,6 +162,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
       return;
     }
+
     claimedOrderId = order._id;
 
     if (
@@ -201,68 +200,73 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         footer: "Please deposit more funds or choose a different order.",
         ephemeral: false,
       });
+
       return;
     }
 
     let activeCardId = order.card?._id;
+
+    try {
+      const repriceResult = await repriceOrder(checkoutId);
+
+      if (repriceResult.ok) {
+        const data = repriceResult.data;
+        const appliedDiscountPercentage = await getDiscountPercentage();
+
+        let discountedPrice: ReturnType<
+          typeof calculateDiscountedOrderPrice
+        > | null = null;
+
+        try {
+          discountedPrice = calculateDiscountedOrderPrice(
+            {
+              subtotal: data.price.subtotal,
+              service: data.price.service,
+              delivery: data.price.delivery,
+            },
+            appliedDiscountPercentage,
+          );
+        } catch (error) {
+          errorLog("Failed to calculate repriced checkout discount:", error);
+        }
+
+        const updateData: Record<string, unknown> = {
+          checkoutId: data.id,
+          orderId: data.order_id,
+          expiresAt: formatExpiryDate(data.expires_in),
+          cost: data.price.total,
+          repricedAt: new Date(),
+        };
+
+        if (discountedPrice) {
+          updateData.total = discountedPrice.total;
+          updateData.discountPercentage = appliedDiscountPercentage;
+        }
+
+        const newOrder = await Order.findByIdAndUpdate(
+          order._id,
+          {
+            $set: updateData,
+            $inc: {
+              repriceCount: 1,
+            },
+          },
+          { returnDocument: "after" },
+        );
+
+        if (newOrder) {
+          order = newOrder;
+          checkoutId = data.id;
+        }
+      }
+    } catch (error) {
+      errorLog("Failed to reprice checkout before confirmation:", error);
+    }
+
     let result = await confirmOrder(checkoutId);
 
     if (result.code === "PAYMENT_ERROR") {
       try {
-        const result = await repriceOrder(checkoutId);
-
-        if (result.ok) {
-          const data = result.data;
-          const appliedDiscountPercentage = await getDiscountPercentage();
-
-          let discountedPrice: ReturnType<
-            typeof calculateDiscountedOrderPrice
-          > | null = null;
-
-          try {
-            discountedPrice = calculateDiscountedOrderPrice(
-              {
-                subtotal: data.price.subtotal,
-                service: data.price.service,
-                delivery: data.price.delivery,
-              },
-              appliedDiscountPercentage,
-            );
-          } catch (error) {
-            errorLog("Failed to calculate repriced checkout discount:", error);
-          }
-
-          const updateData: Record<string, unknown> = {
-            checkoutId: data.id,
-            orderId: data.order_id,
-            expiresAt: formatExpiryDate(data.expires_in),
-            cost: data.price.total,
-            repricedAt: new Date(),
-          };
-
-          if (discountedPrice) {
-            updateData.total = discountedPrice.total;
-            updateData.discountPercentage = appliedDiscountPercentage;
-          }
-
-          const newOrder = await Order.findByIdAndUpdate(
-            order._id,
-            {
-              $set: updateData,
-              $inc: {
-                repriceCount: 1,
-              },
-            },
-            { returnDocument: "after" },
-          );
-
-          if (newOrder) {
-            order = newOrder;
-            checkoutId = data.id;
-          }
-        }
-      } catch {
-      } finally {
         await logError(
           interaction.client,
           "Payment Retry Started",
@@ -285,6 +289,8 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           footer: "You don't need to confirm your order again.",
           ephemeral: false,
         });
+      } catch (error) {
+        errorLog("Failed to send payment retry notification:", error);
       }
     }
 
@@ -293,6 +299,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       paymentAttempts < maxPaymentAttempts
     ) {
       paymentAttempts++;
+
       await Card.findByIdAndUpdate(activeCardId, {
         isLocked: false,
         status: "blocked",
@@ -336,7 +343,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           "No Cards Available",
           "No active payment methods are available for another confirmation attempt.",
           {
-            User: interaction.user.id,
+            User: discordUserId,
             "Checkout ID": checkoutId,
             "Failed Attempts": String(paymentAttempts),
           },
@@ -352,6 +359,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
         return;
       }
+
       const editResult = await editOrder(checkoutId, {
         card: `${decrypt(newCard.encryptedCardNumber)},${newCard.expiryDate},${decrypt(newCard.encryptedCardCvv)},${newCard.zipcode}`,
       });
@@ -364,9 +372,11 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       }
 
       activeCardId = newCard._id;
+
       await Order.findByIdAndUpdate(order._id, {
         card: newCard._id,
       });
+
       result = await confirmOrder(checkoutId);
     }
 
@@ -411,6 +421,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     const validatedCustomerTotal = order.total;
     const orderTotalCents = expectedTotalCents;
+
     let remainingBalance: bigint | null = null;
     let deductionError: unknown;
 
@@ -442,6 +453,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     if (!data.tracking) {
       errorLog("Tracking information is missing for this order", data);
+
       await logError(
         interaction.client,
         "Order Tracking Missing",
@@ -454,18 +466,14 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       );
     }
 
-    await logOrderSuccess(
-      interaction.client,
-      "Order Completed Successfully",
-      {
-        Customer: `<@${discordUserId}>`,
-        "Checkout ID": checkoutId,
-        "Payment Status":
-          remainingBalance === null
-            ? "Reconciliation Required"
-            : "Successfully Deducted",
-      },
-    );
+    await logOrderSuccess(interaction.client, "Order Completed Successfully", {
+      Customer: `<@${discordUserId}>`,
+      "Checkout ID": checkoutId,
+      "Payment Status":
+        remainingBalance === null
+          ? "Reconciliation Required"
+          : "Successfully Deducted",
+    });
 
     try {
       const updatedOrder = await Order.findOneAndUpdate(
@@ -498,6 +506,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         }. Checkout: ${checkoutId}`;
 
         errorLog(`[RECONCILIATION REQUIRED] ${reconciliationError}`);
+
         await logError(
           interaction.client,
           "Order Reconciliation Required",
@@ -517,6 +526,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         }. Checkout: ${checkoutId}`,
         error,
       );
+
       await logError(
         interaction.client,
         "Order Database Update Failed",
