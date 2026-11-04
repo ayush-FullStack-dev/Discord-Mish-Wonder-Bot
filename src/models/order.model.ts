@@ -68,6 +68,17 @@ const orderSchema = new Schema(
       index: true,
     },
 
+    repriceCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    repricedAt: {
+      type: Date,
+      default: null,
+    },
+
     trackingUrl: {
       type: String,
       default: null,

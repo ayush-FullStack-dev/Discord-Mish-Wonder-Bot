@@ -6,11 +6,16 @@ import {
 } from "discord.js";
 import {
   accountConfigure,
+  createAccountsOnChain,
   getJobStatus,
 } from "../../services/account.service.js";
 import { UserChain } from "../../models/userChain.model.js";
 import { Order } from "../../models/order.model.js";
-import { confirmOrder, editOrder } from "../../services/order.service.js";
+import {
+  confirmOrder,
+  editOrder,
+  repriceOrder,
+} from "../../services/order.service.js";
 import { createConfirmedOrderPanel } from "../../ui/order/createConfirmedOrderPanel.js";
 import { sendError } from "../../ui/utils/sendError.js";
 import {
@@ -18,7 +23,12 @@ import {
   handleInteractionError,
 } from "../../utils/error-handler.js";
 import { deductBalance, getBalance } from "../../services/balance.service.js";
-import { centsToDollars, dollarsToCents } from "../../utils/util.js";
+import {
+  calculateDiscountedOrderPrice,
+  centsToDollars,
+  dollarsToCents,
+  formatExpiryDate,
+} from "../../utils/util.js";
 import { logSuccess, logError, logOrderSuccess } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { decrypt } from "../../utils/encryption.js";
@@ -29,40 +39,32 @@ import {
 } from "../../constants/constant.js";
 import { getBestChain } from "../../utils/chain.js";
 import { errorLog } from "../../../logs/printLogs.js";
+import { getDiscountPercentage } from "../../services/discount.service.js";
 
 async function handleCreateAccount(interaction: ButtonInteraction) {
   try {
-    const chainId = await getBestChain("most_unused");
+    const chainId = await getBestChain("most_unused_credit");
 
     const chainAccounts = await UserChain.countDocuments({
       lastChain: chainId,
     });
+
     const count =
       chainId === "1" ? 1 : Math.max(1, minChainAccountCount - chainAccounts);
 
-    const account = await accountConfigure({
-      count,
+    const result = await createAccountsOnChain({
       chain: chainId,
+      count,
     });
 
-    if (!account.ok) {
-      throw new Error("Failed to create account. Please try again later.");
+    if (!result.ok) {
+      throw new Error(result.error);
     }
 
-    if (account.state === "queued") {
-      let accountStatus = await getJobStatus(account.job);
+    await UserChain.create({
+      lastChain: chainId,
+    });
 
-      while (!accountStatus.done) {
-        if (!accountStatus.ok) {
-          throw new Error("Failed to fetch account status.");
-        }
-
-        await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
-        accountStatus = await getJobStatus(account.job);
-      }
-    }
-
-    await UserChain.create({ lastChain: chainId });
     const isNewChain = count === 3;
 
     return logSuccess(
@@ -79,18 +81,14 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
   } catch (error) {
     errorLog("Account creation failed:", error);
 
-    return await logError(
-      interaction.client,
-      "Account Creation Failed",
-      error,
-      {
-        User: interaction.user.id,
-        Action: "Create Next Account",
-        Status: "Failed",
-      },
-    );
+    return logError(interaction.client, "Account Creation Failed", error, {
+      User: interaction.user.id,
+      Action: "Create Next Account",
+      Status: "Failed",
+    });
   }
 }
+
 export async function handleConfirmOrder(interaction: ButtonInteraction) {
   let claimedOrderId: typeof Order.prototype._id | null = null;
   let providerConfirmed = false;
@@ -113,7 +111,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       ephemeral: false,
     });
 
-    const checkoutId = interaction.customId.split(":")[2];
+    let checkoutId = interaction.customId.split(":")[2];
     const discordUserId = interaction.user.id;
 
     if (!checkoutId) {
@@ -123,6 +121,19 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         footer: "Please try again or contact support.",
         ephemeral: false,
       });
+      return;
+    }
+
+    const balance = await getBalance(discordUserId);
+
+    if (balance === null) {
+      await sendError(interaction, {
+        title: "Wallet Not Found",
+        description: "You don't have a wallet to confirm this order.",
+        footer: "Please deposit funds and try again.",
+        ephemeral: false,
+      });
+
       return;
     }
 
@@ -176,19 +187,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       return;
     }
 
-    const balance = await getBalance(discordUserId);
-
-    if (balance === null) {
-      await sendError(interaction, {
-        title: "Wallet Not Found",
-        description: "You don't have a wallet to confirm this order.",
-        footer: "Please deposit funds and try again.",
-        ephemeral: false,
-      });
-
-      return;
-    }
-
     const dollarBalance = Number(centsToDollars(balance));
 
     if (order.total > dollarBalance) {
@@ -212,29 +210,89 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     let result = await confirmOrder(checkoutId);
 
     if (result.code === "PAYMENT_ERROR") {
-      await logError(
-        interaction.client,
-        "Payment Retry Started",
-        "The initial payment method was declined during order confirmation. Attempting alternative payment methods.",
-        {
-          User: interaction.user.id,
-          "Checkout ID": checkoutId,
-          "Maximum Attempts": String(maxPaymentAttempts),
-        },
-      );
+      try {
+        const result = await repriceOrder(checkoutId);
 
-      await sendLoading(interaction, {
-        title: "Trying Another Payment Method",
-        description: [
-          "**Your payment couldn't be processed with the current card.**",
-          "",
-          "We're trying another available payment method to complete your order.",
-          "Please wait while we process your confirmation.",
-        ].join("\n"),
-        footer: "You don't need to confirm your order again.",
-        ephemeral: false,
-      });
+        if (result.ok) {
+          const data = result.data;
+          console.log(data.id, checkoutId, data.id === checkoutId);
+          const appliedDiscountPercentage = await getDiscountPercentage();
+
+          let discountedPrice: ReturnType<
+            typeof calculateDiscountedOrderPrice
+          > | null = null;
+
+          try {
+            discountedPrice = calculateDiscountedOrderPrice(
+              {
+                subtotal: data.price.subtotal,
+                service: data.price.service,
+                delivery: data.price.delivery,
+              },
+              appliedDiscountPercentage,
+            );
+          } catch (error) {
+            errorLog("Failed to calculate repriced checkout discount:", error);
+          }
+
+          const updateData: Record<string, unknown> = {
+            checkoutId: data.id,
+            orderId: data.order_id,
+            expiresAt: formatExpiryDate(data.expires_in),
+            cost: data.price.total,
+            repricedAt: new Date(),
+          };
+
+          if (discountedPrice) {
+            updateData.total = discountedPrice.total;
+            updateData.discountPercentage = appliedDiscountPercentage;
+          }
+
+          const newOrder = await Order.findByIdAndUpdate(
+            order._id,
+            {
+              $set: updateData,
+              $inc: {
+                repriceCount: 1,
+              },
+            },
+            { returnDocument: "after" },
+          );
+
+          if (newOrder) {
+            order = newOrder;
+            checkoutId = data.id;
+          }
+        }
+      } catch (error) {
+        console.log("repice error: ", error);
+      } finally {
+        await logError(
+          interaction.client,
+          "Payment Retry Started",
+          "The initial payment method was declined during order confirmation. Attempting alternative payment methods.",
+          {
+            User: interaction.user.id,
+            "Checkout ID": checkoutId,
+            "Maximum Attempts": String(maxPaymentAttempts),
+          },
+        );
+
+        await sendLoading(interaction, {
+          title: "Trying Another Payment Method",
+          description: [
+            "**Your payment couldn't be processed with the current card.**",
+            "",
+            "We're trying another available payment method to complete your order.",
+            "Please wait while we process your confirmation.",
+          ].join("\n"),
+          footer: "You don't need to confirm your order again.",
+          ephemeral: false,
+        });
+      }
     }
+
+    let editOrderAttempts = 0;
 
     while (
       result.code === "PAYMENT_ERROR" &&
@@ -312,23 +370,34 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       });
 
       if (!editResult.ok) {
-        await sendError(interaction, {
-          title: "Checkout Update Failed",
-          description: editResult.message,
-          footer: "Order confirmation was stopped.",
-          ephemeral: false,
-        });
+        editOrderAttempts++;
 
-        return await logError(
-          interaction.client,
-          "Checkout Edit Failed",
-          editResult.message,
-          {
-            User: interaction.user.id,
-            "Checkout ID": checkoutId,
-            "Error Code": editResult.code,
-          },
+        errorLog(
+          `[ORDER] Checkout edit failed | Attempt: ${editOrderAttempts} | Checkout: ${checkoutId} | Error: ${editResult.message}`,
         );
+
+        if (editOrderAttempts >= 3) {
+          await sendError(interaction, {
+            title: "Checkout Update Failed",
+            description: editResult.message,
+            footer: "Order confirmation was stopped.",
+            ephemeral: false,
+          });
+
+          return await logError(
+            interaction.client,
+            "Checkout Edit Failed",
+            editResult.message,
+            {
+              User: interaction.user.id,
+              "Checkout ID": checkoutId,
+              "Error Code": editResult.code,
+              "Failed Attempts": String(editOrderAttempts),
+            },
+          );
+        }
+
+        continue;
       }
 
       result = await confirmOrder(checkoutId);

@@ -1,6 +1,7 @@
 import axios from "axios";
 import { env } from "../config/env.js";
 import { errorLog, success } from "../../logs/printLogs.js";
+import { getBestChain } from "../utils/chain.js";
 
 const api = axios.create({
   baseURL: env.yonderApiBaseUrl,
@@ -42,6 +43,8 @@ export async function getAccounts() {
     return handleApiError(error);
   }
 }
+
+
 export async function getChains() {
   try {
     const response = await api.get("/chains");
@@ -50,7 +53,6 @@ export async function getChains() {
     return handleApiError(error);
   }
 }
-
 export async function getChainQueue() {
   try {
     const response = await api.get("/chains/queue");
@@ -103,7 +105,6 @@ export async function createAccountsOnChain({
         }
 
         await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
-
         accountStatus = await getJobStatus(account.job);
       }
 
@@ -124,5 +125,29 @@ export async function createAccountsOnChain({
       ok: false,
       error: error instanceof Error ? error.message : "Unknown error",
     };
+  }
+}
+
+export async function lockChain(chain: string) {
+  try {
+    const response = await api.post(
+      `/chains/${encodeURIComponent(chain)}/lock`,
+    );
+
+    return response.data;
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+
+export async function unlockChain(chain: string) {
+  try {
+    const response = await api.post(
+      `/chains/${encodeURIComponent(chain)}/unlock`,
+    );
+
+    return response.data;
+  } catch (error) {
+    return handleApiError(error);
   }
 }

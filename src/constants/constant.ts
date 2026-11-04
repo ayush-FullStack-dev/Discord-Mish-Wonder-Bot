@@ -10,3 +10,5 @@ export const minimumOrderSubTotal = env.minimumOrderSubTotal;
 export const maxOrderAmount = env.maxOrderAmount;
 export const minChainAccountCount = 3;
 export const maxPaymentAttempts = 5;
+
+export const excludeChains: string[] = ["1"];

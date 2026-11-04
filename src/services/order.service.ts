@@ -16,6 +16,57 @@ interface CreateOrderInput {
   cartCode: string;
 }
 
+export interface RepriceCheckoutData {
+  ok: boolean;
+  id: string;
+  status: string;
+  restaurant: string;
+  items: CheckoutItem[];
+  price: CheckoutPrice & {
+    discount?: number;
+  };
+  fulfillment: string;
+  dropoff: string;
+  address: string | null;
+  chain: string;
+  referral_code: string | null;
+  referral_applied: boolean;
+  account: string | null;
+  card: string | null;
+  expires_in: number;
+  order_id: string | null;
+  tracking: string | null;
+  tracking_url: string | null;
+  notes: string | null;
+  unit: string | null;
+  account_credit: number;
+  referral_pays: number;
+  referral_problem: string | null;
+  tip_warning: string | null;
+  name: string | null;
+  name_warning: string | null;
+  step: string | null;
+  order_ref: string;
+  expires_at: string;
+  result: unknown;
+  error: unknown;
+  forter_pending: boolean;
+  card_pending: boolean;
+  forter_declines: number;
+  forter: Record<string, unknown>;
+}
+
+export type RepriceOrderResult =
+  | {
+      ok: true;
+      data: RepriceCheckoutData;
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
 export interface CheckoutItem {
   name: string;
   quantity: number;
@@ -105,7 +156,7 @@ export async function createOrder(
   card: OrderCard,
 ): Promise<CreateOrderResult> {
   try {
-    const chainId = await getBestChain("most_unused");
+    const chainId = await getBestChain("most_unused_credit");
     const response = await axios.post<CheckoutData>(
       `${env.yonderApiBaseUrl}/checkouts`,
       {
@@ -133,29 +184,37 @@ export async function createOrder(
       data,
     };
   } catch (error: unknown) {
-    console.log(error);
     const code = axios.isAxiosError(error)
       ? (error.response?.data?.code ?? "UNKNOWN_ERROR")
       : error instanceof Error
         ? error.message
         : "UNKNOWN_ERROR";
-
     const status = axios.isAxiosError(error)
       ? error.response?.status
       : undefined;
 
-    errorLog(`Failed to create checkout: code ${code}`);
+    const responseError = axios.isAxiosError(error)
+      ? error.response?.data?.error
+      : undefined;
 
-    if (
+    const isCardRejected =
       CARD_REJECTION_CODES.includes(
         code as (typeof CARD_REJECTION_CODES)[number],
-      )
-    ) {
+      ) ||
+      (code === "CHECKOUT_FAILED" &&
+        typeof responseError === "string" &&
+        responseError.includes(
+          "Issuer or Cardholder has put a restriction on the card",
+        ));
+
+    if (isCardRejected) {
       return {
         code: "PAYMENT_ERROR",
         message: "Your payment method was declined.",
       };
     }
+
+    errorLog(`Failed to create checkout: code ${code}`);
 
     if (code === "BAD_CART" || code === "CART_REQUIRED") {
       return {
@@ -477,5 +536,43 @@ export async function trackOrder(id: string) {
   } catch (error: unknown) {
     errorLog(`Failed to track order ${id}: ${getErrorMessage(error)}`);
     throw error;
+  }
+}
+
+export async function repriceOrder(id: string): Promise<RepriceOrderResult> {
+  if (!id?.trim()) {
+    return {
+      ok: false,
+      code: "INVALID_CHECKOUT_ID",
+      message: "A valid checkout ID is required.",
+    };
+  }
+
+  try {
+    const response = await axios.post<RepriceCheckoutData>(
+      `${env.yonderApiBaseUrl}/checkouts/${encodeURIComponent(id.trim())}/reprice`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${env.yonderApiKey}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    return {
+      ok: true,
+      data: response.data,
+    };
+  } catch (error: unknown) {
+    errorLog(`Failed to reprice checkout ${id}: ${getErrorMessage(error)}`);
+
+    return {
+      ok: false,
+      code: axios.isAxiosError(error)
+        ? (error.response?.data?.code ?? "UNKNOWN_ERROR")
+        : "UNKNOWN_ERROR",
+      message: getErrorMessage(error),
+    };
   }
 }

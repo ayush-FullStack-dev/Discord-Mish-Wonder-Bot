@@ -1,4 +1,12 @@
-export function formatExpiryDate(expiresIn: number): Date {
+export function formatExpiryDate(expiresIn: number | string | Date): Date {
+  if (expiresIn instanceof Date) {
+    return expiresIn;
+  }
+
+  if (typeof expiresIn === "string") {
+    return new Date(expiresIn);
+  }
+
   return new Date(Date.now() + expiresIn * 1000);
 }
 
@@ -79,7 +87,9 @@ export function calculateDiscountedOrderPrice(
     (baseAmountCents * discountPercentage) / 100,
   );
   if (!Number.isSafeInteger(discountCents)) {
-    throw new Error("Calculated discount exceeds the supported currency range.");
+    throw new Error(
+      "Calculated discount exceeds the supported currency range.",
+    );
   }
 
   const totalCents = baseAmountCents - discountCents;
@@ -96,4 +106,5 @@ export function calculateDiscountedOrderPrice(
   };
 }
 
-export const secondsToMilliseconds = (seconds: number): number => seconds * 1000;
+export const secondsToMilliseconds = (seconds: number): number =>
+  seconds * 1000;
