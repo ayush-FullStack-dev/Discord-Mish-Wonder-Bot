@@ -5,9 +5,7 @@ import {
   type ButtonInteraction,
 } from "discord.js";
 import {
-  accountConfigure,
   createAccountsOnChain,
-  getJobStatus,
 } from "../../services/account.service.js";
 import { UserChain } from "../../models/userChain.model.js";
 import { Order } from "../../models/order.model.js";
