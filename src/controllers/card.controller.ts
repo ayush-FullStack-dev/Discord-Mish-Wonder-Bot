@@ -29,8 +29,16 @@ export async function handleAddSingleCard(
 
     const cardReference = interaction.options.getString("card-info", true);
 
-    const { cardnumber, cvv, expdate, zipcode, state, city, address } =
-      validateCardReference(cardReference);
+    const {
+      cardnumber,
+      cvv,
+      expdate,
+      fullname,
+      zipcode,
+      state,
+      city,
+      address,
+    } = validateCardReference(cardReference);
 
     try {
       await addCard({
@@ -41,6 +49,7 @@ export async function handleAddSingleCard(
         state: state,
         city: city,
         address: address,
+        fullname: fullname ?? null,
       });
     } catch (error) {
       await attemptInteractionResponse(interaction, () =>
@@ -111,6 +120,7 @@ export async function handleAddBulkCard(
           zipcode: record.zipcode,
           state: record.state,
           city: record.city,
+          fullname: record.fullname ?? null,
           address: record.address,
         });
       } catch {
@@ -188,7 +198,6 @@ export async function handleDeleteCard(
         content: `Card ending in ${lastFour} deleted successfully.`,
       }),
     );
-    
   } catch (error) {
     return await interaction
       .editReply({

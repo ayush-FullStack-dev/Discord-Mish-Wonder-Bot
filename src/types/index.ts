@@ -6,6 +6,7 @@ export interface ICard {
   state: string;
   city: string;
   address: string;
+  fullname?: string | null;
   isLocked?: boolean;
   status?: "active" | "inactive" | "expired" | "blocked";
   lastUsedBy?: string;

@@ -14,6 +14,11 @@ const cardSchema = new Schema(
       maxlength: 4,
     },
 
+    fullname: {
+      type: String,
+      maxlength: 100,
+      default: null,
+    },
     encryptedCardCvv: {
       type: String,
       required: true,
