@@ -137,7 +137,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       {
         checkoutId,
         discordUserId,
-        status: "pending",
         confirming: { $ne: true },
       },
       {
@@ -153,10 +152,42 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     if (!order) {
       await sendError(interaction, {
-        title: "Order Not Available",
-        description:
-          "This order is already being confirmed or is no longer pending.",
-        footer: "Please check your order status and try again.",
+        title: "Order No Longer Available",
+        description: [
+          "This order is no longer available in our system.",
+          "",
+          "**Please place a new order using the same cart code or a different one.**",
+        ].join("\n"),
+        footer: "This order is no longer associated with your account.",
+        ephemeral: false,
+      });
+      return;
+    } else if (order.status !== "pending") {
+      const statusMessages = {
+        confirmed: "This order has already been confirmed successfully.",
+        failed: "This order has failed and cannot be confirmed again.",
+        cancelled: "This order has been cancelled and is no longer available.",
+        unknown: "We couldn't verify the status of this order.",
+      } as const;
+
+      const description =
+        statusMessages[order.status as keyof typeof statusMessages] ??
+        "This order cannot be confirmed at the moment.";
+
+      await Order.updateOne(
+        {
+          _id: order._id,
+          confirming: true,
+        },
+        {
+          $set: { confirming: false },
+        },
+      );
+
+      await sendError(interaction, {
+        title: "Order Cannot Be Confirmed",
+        description,
+        footer: "Please place a new order to continue.",
         ephemeral: false,
       });
 
@@ -321,11 +352,11 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         await sendError(interaction, {
           title: "Unable to Confirm Your Order",
           description: [
-            "We tried multiple payment methods, but your payment couldn't be approved.",
+            "We couldn't complete your payment with the available cards.",
             "",
-            "Please contact support for assistance with your order.",
+            "**Please click Confirm again to retry your order.**",
           ].join("\n"),
-          footer: "Your order has not been marked as confirmed.",
+          footer: "Your order is still pending.",
           ephemeral: false,
         });
 
@@ -352,11 +383,11 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         await sendError(interaction, {
           title: "No Payment Methods Available",
           description:
-            "We couldn't find another available payment method to complete your order. Please contact support.",
-          footer: "Our team can help you complete your order.",
+            "This order cannot be confirmed right now because our system has no available cards.",
+          footer:
+            "Please wait until an admin adds new cards before trying again.",
           ephemeral: false,
         });
-
         return;
       }
 
