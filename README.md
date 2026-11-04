@@ -125,8 +125,8 @@ src/
 3. It selects an active, unlocked card (pinned cards sort first), chooses a
    chain, and asks Yonder to create a checkout.
 4. If the provider reports a card payment failure, the bot blocks that card and
-   retries using another active, unlocked card, up to the configured five
-   attempts.
+   retries using other active, unlocked cards until payment succeeds, no card
+   remains, or the retry counter reaches its configured limit of nine.
 5. The bot applies the configured discount to the provider's subtotal, service
    fee, and delivery fee. It rejects a subtotal below or above the configured
    limits and attempts to cancel the provider checkout in those cases.
@@ -162,11 +162,17 @@ flowchart TD
     A --> D
 ```
 
+The bot reprices once before the initial provider confirmation and again after
+each third failed payment retry. A successful reprice refreshes the checkout
+ID, expiry, provider cost, discounted customer total, discount percentage, and
+repricing metadata in the order record. The bot shows an **Updating Checkout**
+progress message during repricing, then restores the confirmation or payment
+retry status message. A reprice failure is logged and confirmation continues
+with the locally saved checkout data. Confirmation uses the same nine-count
+retry limit as checkout creation.
+
 Before confirmation, the controller atomically marks the local order as
-`confirming` to prevent concurrent confirmation attempts. A successful reprice
-updates the stored checkout, expiry, provider cost, and—if the discount
-calculation succeeds—the customer total. A failed reprice is logged and the
-confirmation flow continues with the locally stored checkout details.
+`confirming` to prevent concurrent confirmation attempts.
 
 Provider confirmation is treated as authoritative. After the provider confirms,
 the bot unlocks the active card, attempts the wallet deduction, updates the
@@ -181,6 +187,10 @@ they do not automatically reverse the provider order.
   and the ticket is scheduled for deletion.
 - A per-order timeout and a five-minute cron job remove expired pending orders
   and release their card locks when unused.
+- The per-order timeout notifies the customer that the checkout expired,
+  suggests using the same cart code if it is still valid or a different code,
+  and links to the configured shop channel. The notice includes the checkout
+  session timeout information.
 - A second five-minute job finds cards still marked locked without an active
   pending checkout and unlocks them.
 - Order and card schemas also define MongoDB TTL indexes on their expiry fields.
@@ -295,6 +305,8 @@ The shop panel exposes these non-slash interactions:
 - **Check My Balance** displays the wallet balance ephemerally.
 - **Confirm Order** and **Cancel Checkout** act on the pending checkout in the
   ticket. The order lookup is scoped to the interacting Discord user.
+- If confirmation cannot find the local order, the bot responds that the order
+  is unavailable.
 
 The bot also supports ticket-channel deletion after cancellation and the
 `/close-order` delay. `/close-all-orders` deletes ticket channels; it does not
@@ -396,9 +408,8 @@ Git; keep credentials and payment-encryption keys out of source control.
 | `NODE_ENV` | No | Defaults to `development`; currently printed in startup output. |
 
 The numeric settings must be finite and non-negative. The example environment
-file sets the order limits to 20 and;
-the latter value currently has no effect because the application does not read
-that setting after parsing it.
+file sets the minimum and maximum provider subtotals to 20 and 25, respectively;
+both values are read by the order-creation flow.
 
 ## Scripts and running the bot
 
