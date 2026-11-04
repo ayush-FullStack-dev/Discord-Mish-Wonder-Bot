@@ -46,6 +46,6 @@ export const env = {
   clientId: getRequiredEnv("CLIENT_ID"),
   guildId: getRequiredEnv("GUILD_ID"),
   minimumOrderSubTotal: getNumberEnv("MINIMUM_ORDER_SUBTOTAL", 20),
-  maxOrderAmount: getNumberEnv("MAX_ORDER_AMOUNT", 25),
+  maxOrderSubTotal: getNumberEnv("MAX_ORDER_SUBTOTAL", 25),
   maxChainAccounts: getNumberEnv("MAX_CHAIN_ACCOUNTS", 30),
 } as const;

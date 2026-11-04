@@ -34,8 +34,8 @@ import { Card } from "../../models/card.model.js";
 import { decrypt } from "../../utils/encryption.js";
 import {
   minimumOrderSubTotal,
-  maxOrderAmount,
   maxPaymentAttempts,
+  maxOrderSubTotal,
 } from "../../constants/constant.js";
 import { getDiscountPercentage } from "../../services/discount.service.js";
 import { sendOrderExpired } from "../../ui/order/sendOrderExpired.js";
@@ -404,15 +404,15 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
           footer: `Minimum order total: $${minimumOrderSubTotal}.`,
         });
       }
-    } else if (data.price.subtotal > maxOrderAmount) {
+    } else if (data.price.subtotal > maxOrderSubTotal) {
       try {
         await cancelOrder(data.id);
       } catch {
       } finally {
         return sendError(interaction, {
           title: "Order Total Exceeds Limit",
-          description: `The total amount of your order exceeds the maximum allowed limit of $${maxOrderAmount}.`,
-          footer: `Please place an order with a total amount less than $${maxOrderAmount}.`,
+          description: `The total amount of your order exceeds the maximum allowed limit of $${maxOrderSubTotal}.`,
+          footer: `Please place an order with a total amount less than $${maxOrderSubTotal}.`,
         });
       }
     }

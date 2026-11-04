@@ -7,7 +7,7 @@ export const ADMIN_USERID = [
 ];
 export const PING_ROLESID = ["1556483064639529020"];
 export const minimumOrderSubTotal = env.minimumOrderSubTotal;
-export const maxOrderAmount = env.maxOrderAmount;
+export const maxOrderSubTotal = env.maxOrderSubTotal;
 export const minChainAccountCount = 3;
 export const maxPaymentAttempts = 5;
 
