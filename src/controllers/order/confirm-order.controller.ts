@@ -215,7 +215,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
         if (result.ok) {
           const data = result.data;
-          console.log(data.id, checkoutId, data.id === checkoutId);
           const appliedDiscountPercentage = await getDiscountPercentage();
 
           let discountedPrice: ReturnType<
@@ -264,8 +263,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
             checkoutId = data.id;
           }
         }
-      } catch (error) {
-        console.log("repice error: ", error);
+      } catch  {
       } finally {
         await logError(
           interaction.client,
