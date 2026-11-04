@@ -1,6 +1,5 @@
 import "dotenv/config";
 import { errorLog } from "../../logs/printLogs.js";
-import { get } from "node:http";
 
 function getRequiredEnv(name: string): string {
   const value = process.env[name]?.trim();

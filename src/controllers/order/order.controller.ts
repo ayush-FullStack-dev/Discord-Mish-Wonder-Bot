@@ -32,9 +32,7 @@ import { requireAdmin } from "../../middleware.js";
 import { logError, sendErrorAndLog } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { decrypt } from "../../utils/encryption.js";
-import {
-  maxPaymentAttempts,
-} from "../../constants/constant.js";
+import { maxPaymentAttempts } from "../../constants/constant.js";
 import { getDiscountPercentage } from "../../services/discount.service.js";
 import { sendOrderExpired } from "../../ui/order/sendOrderExpired.js";
 import { ORDER_ERRORS } from "../../constants/errors.js";
@@ -52,13 +50,16 @@ async function scheduleOrderExpiry(
       await Card.findByIdAndUpdate(cardId, {
         $set: { isLocked: false },
       });
-      return;
+
+      return await sendOrderExpired({
+        replyTo: checkoutMessage,
+        expiresIn,
+      });
     }
 
     if (order.status !== "pending") return;
 
-    const expiresAt =
-      order.repriceCount > 0 ? order.expiresAt : order.expiresAt;
+    const expiresAt = order.expiresAt;
 
     if (!expiresAt) return;
 

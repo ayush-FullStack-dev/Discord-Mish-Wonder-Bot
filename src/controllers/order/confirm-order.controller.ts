@@ -152,7 +152,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     if (!order) {
       await sendError(interaction, {
-        title: "Order No Longer Available",
+        title: "Order Unavailable",
         description: [
           "This order is no longer available in our system.",
           "",
