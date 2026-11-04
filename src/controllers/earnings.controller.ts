@@ -192,7 +192,7 @@ export async function handleEarnings(
         $lt: end,
       },
       status: "confirmed",
-      discordUserId: { $nin: ADMIN_USERID.filter(id => id !== BOT_OWNER_ID) },
+      discordUserId: { $nin: ADMIN_USERID },
     })
       .select(showProfit ? "total cost" : "total")
       .lean();
