@@ -33,9 +33,7 @@ import { logError, sendErrorAndLog } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { decrypt } from "../../utils/encryption.js";
 import {
-  minimumOrderSubTotal,
   maxPaymentAttempts,
-  maxOrderSubTotal,
 } from "../../constants/constant.js";
 import { getDiscountPercentage } from "../../services/discount.service.js";
 import { sendOrderExpired } from "../../ui/order/sendOrderExpired.js";
@@ -389,9 +387,9 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
 
     const calculatedTotal = discountedPrice.total;
 
-    if (data.price.subtotal < minimumOrderSubTotal) {
+    if (data.price.subtotal < env.minimumOrderSubTotal) {
       const remainingAmount = (
-        minimumOrderSubTotal - data.price.subtotal
+        env.minimumOrderSubTotal - data.price.subtotal
       ).toFixed(2);
 
       try {
@@ -400,19 +398,19 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       } finally {
         return sendError(interaction, {
           title: "Minimum Order Not Met",
-          description: `Your order total must be at least $${minimumOrderSubTotal}. Add another $${remainingAmount} to meet the minimum order requirement.`,
-          footer: `Minimum order total: $${minimumOrderSubTotal}.`,
+          description: `Your order total must be at least $${env.minimumOrderSubTotal}. Add another $${remainingAmount} to meet the minimum order requirement.`,
+          footer: `Minimum order total: $${env.minimumOrderSubTotal}.`,
         });
       }
-    } else if (data.price.subtotal > maxOrderSubTotal) {
+    } else if (data.price.subtotal > env.maxOrderSubTotal) {
       try {
         await cancelOrder(data.id);
       } catch {
       } finally {
         return sendError(interaction, {
           title: "Order Total Exceeds Limit",
-          description: `The total amount of your order exceeds the maximum allowed limit of $${maxOrderSubTotal}.`,
-          footer: `Please place an order with a total amount less than $${maxOrderSubTotal}.`,
+          description: `The total amount of your order exceeds the maximum allowed limit of $${env.maxOrderSubTotal}.`,
+          footer: `Please place an order with a total amount less than $${env.maxOrderSubTotal}.`,
         });
       }
     }
