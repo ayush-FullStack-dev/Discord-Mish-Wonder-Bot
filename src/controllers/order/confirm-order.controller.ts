@@ -129,7 +129,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     let order = await Order.findOneAndUpdate(
       {
         checkoutId,
-        discordUserId,
         confirming: { $ne: true },
       },
       {
@@ -205,8 +204,14 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       });
 
       return;
+    } else if (order.discordUserId !== discordUserId) {
+      return sendError(interaction, {
+        title: "Unauthorized Access",
+        description: "You are not authorized to confirm this order.",
+        footer: "Only the user who place this order can confirm it.",
+        ephemeral: true,
+      });
     }
-
     const dollarBalance = Number(centsToDollars(balance));
 
     if (order.total > dollarBalance) {
@@ -297,7 +302,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
           checkoutId = repriced.checkoutId;
           order = repriced.order;
-
         } catch (error) {
           errorLog(
             `[ORDER] Checkout repricing failed | Checkout: ${checkoutId} | Attempt: ${paymentAttempts}/${maxPaymentAttempts} | Error: ${error instanceof Error ? error.message : String(error)}`,

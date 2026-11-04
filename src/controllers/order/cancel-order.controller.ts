@@ -59,8 +59,6 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
 
     const order = await Order.findOne({
       checkoutId,
-      discordUserId,
-      status: "pending",
       confirming: false,
     }).populate("card", "_id last4Digits expiryDate status");
 
@@ -68,7 +66,7 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
       await logError(
         interaction.client,
         "Order Not Found",
-        "No pending order was found for this user.",
+        "No order was found for the provided checkout ID.",
         {
           User: discordUserId,
           "Checkout ID": checkoutId,
@@ -76,15 +74,67 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
       );
 
       await sendError(interaction, {
-        title: "Order Not Found",
+        title: "Order Unavailable",
         description: [
-          "We couldn't find a pending order associated with your account.",
+          "This order is no longer available in our system.",
           "",
-          "It may already be confirmed, cancelled, or expired.",
+          "**Please place a new order using the same cart code or a different one.**",
         ].join("\n"),
+        footer: "The order may have expired or already been removed.",
+        ephemeral: false,
+      });
+
+      return;
+    } else if (order.discordUserId !== discordUserId) {
+      await logError(
+        interaction.client,
+        "Unauthorized Order Cancellation",
+        "A user attempted to cancel an order that belongs to another user.",
+        {
+          User: discordUserId,
+          "Order Owner": order.discordUserId,
+          "Checkout ID": checkoutId,
+        },
+      );
+
+      await sendError(interaction, {
+        title: "Unauthorized Access",
+        description: "You are not authorized to cancel this order.",
+        footer: "Only the user who created this order can cancel it.",
+        ephemeral: true,
+      });
+
+      return;
+    } else if (order.status !== "pending") {
+      const statusMessages = {
+        confirmed: "This order has already been confirmed successfully.",
+        failed: "This order has failed and cannot be cancelled.",
+        cancelled: "This order has already been cancelled.",
+        unknown: "We couldn't verify the status of this order.",
+      } as const;
+
+      const description =
+        statusMessages[order.status as keyof typeof statusMessages] ??
+        "This order cannot be cancelled at the moment.";
+
+      await logError(
+        interaction.client,
+        "Order Cannot Be Cancelled",
+        description,
+        {
+          User: discordUserId,
+          "Checkout ID": checkoutId,
+          Status: order.status,
+        },
+      );
+
+      await sendError(interaction, {
+        title: "Order Cannot Be Cancelled",
+        description,
         footer: "Only pending orders can be cancelled.",
         ephemeral: false,
       });
+
       return;
     }
 
