@@ -2,7 +2,12 @@ import type {
   ChatInputCommandInteraction,
   ModalSubmitInteraction,
 } from "discord.js";
-import { ChannelType, GuildMember, MessageFlags } from "discord.js";
+import {
+  ChannelType,
+  GuildMember,
+  MessageFlags,
+  type Message,
+} from "discord.js";
 import { cancelOrder, createOrder } from "../../services/order.service.js";
 import {
   attemptInteractionResponse,
@@ -35,6 +40,71 @@ import {
 import { getDiscountPercentage } from "../../services/discount.service.js";
 import { sendOrderExpired } from "../../ui/order/sendOrderExpired.js";
 import { ORDER_ERRORS } from "../../constants/errors.js";
+
+async function scheduleOrderExpiry(
+  orderId: typeof Order.prototype._id,
+  cardId: typeof Card.prototype._id,
+  checkoutMessage: Message<boolean>,
+  expiresIn: number,
+): Promise<void> {
+  const checkExpiry = async () => {
+    const order = await Order.findById(orderId);
+
+    if (!order) {
+      await Card.findByIdAndUpdate(cardId, {
+        $set: { isLocked: false },
+      });
+      return;
+    }
+
+    if (order.status !== "pending") return;
+
+    const expiresAt =
+      order.repriceCount > 0 ? order.expiresAt : order.expiresAt;
+
+    if (!expiresAt) return;
+
+    const remainingTime = new Date(expiresAt).getTime() - Date.now();
+
+    if (remainingTime > 0) {
+      setTimeout(() => {
+        void checkExpiry().catch(console.error);
+      }, remainingTime + 10_000);
+
+      return;
+    }
+
+    const deletedOrder = await Order.findOneAndDelete({
+      _id: orderId,
+      status: "pending",
+      expiresAt: { $lte: new Date() },
+    });
+
+    if (!deletedOrder) return;
+
+    await Card.findByIdAndUpdate(cardId, {
+      $set: { isLocked: false },
+    });
+
+    await sendOrderExpired({
+      replyTo: checkoutMessage,
+      expiresIn,
+    });
+  };
+
+  const order = await Order.findById(orderId);
+
+  if (!order || order.status !== "pending" || !order.expiresAt) return;
+
+  const delay = Math.max(
+    0,
+    new Date(order.expiresAt).getTime() - Date.now() + 10_000,
+  );
+
+  setTimeout(() => {
+    void checkExpiry().catch(console.error);
+  }, delay);
+}
 
 export async function handleOrderModal(interaction: ModalSubmitInteraction) {
   await attemptInteractionResponse(interaction, () =>
@@ -363,8 +433,9 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       footer: "Your order will be sent here once confirmed.",
     });
 
+    let savedOrderId: typeof Order.prototype._id;
     try {
-      await Order.create({
+      const savedOrder = await Order.create({
         name: displayName,
         discordUserId: interaction.user.id,
         checkoutId: data.id,
@@ -377,6 +448,8 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         cost: data.price.total,
       });
 
+      savedOrderId = savedOrder._id;
+
       await Card.findOneAndUpdate(
         { _id: card._id },
         { $set: { isLocked: true } },
@@ -385,6 +458,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       try {
         await cancelOrder(data.id);
       } catch {}
+
       await sendErrorAndLog(
         interaction,
         "Failed to Save Order",
@@ -404,6 +478,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         footer: "Your order has been cancelled. Please try again later.",
       });
     }
+
     const checkoutData: CheckoutData = {
       id: data.id,
       status: data.status,
@@ -450,39 +525,11 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       footer: "Your order stays private inside that ticket.",
     });
 
-    return setTimeout(
-      async () => {
-        const checkOrder = await Order.findOne({
-          checkoutId: data.id,
-          card: card._id,
-        });
-
-        if (!checkOrder) {
-          await Card.findOneAndUpdate(
-            { _id: card._id },
-            { $set: { isLocked: false } },
-          );
-
-          await sendOrderExpired({
-            replyTo: checkoutMessage,
-            expiresIn: data.expires_in,
-          });
-        } else if (checkOrder.status === "pending") {
-          await Order.findByIdAndDelete(checkOrder._id);
-
-          await Card.findOneAndUpdate(
-            { _id: card._id },
-            { $set: { isLocked: false } },
-          );
-
-          await sendOrderExpired({
-            replyTo: checkoutMessage,
-            expiresIn: data.expires_in,
-          });
-        }
-      },
-
-      secondsToMilliseconds(data.expires_in + 10),
+    return void scheduleOrderExpiry(
+      savedOrderId,
+      card._id,
+      checkoutMessage,
+      data.expires_in,
     );
   } catch (error) {
     await logError(interaction.client, "Order Processing Failed", error, {
