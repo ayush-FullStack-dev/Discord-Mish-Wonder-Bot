@@ -404,7 +404,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
           footer: `Minimum order total: $${minimumOrderSubTotal}.`,
         });
       }
-    } else if (calculatedTotal > maxOrderAmount) {
+    } else if (data.price.subtotal > maxOrderAmount) {
       try {
         await cancelOrder(data.id);
       } catch {
