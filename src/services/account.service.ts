@@ -1,7 +1,6 @@
 import axios from "axios";
 import { env } from "../config/env.js";
 import { errorLog, success } from "../../logs/printLogs.js";
-import { getBestChain } from "../utils/chain.js";
 
 const api = axios.create({
   baseURL: env.yonderApiBaseUrl,
@@ -44,7 +43,6 @@ export async function getAccounts() {
   }
 }
 
-
 export async function getChains() {
   try {
     const response = await api.get("/chains");
@@ -53,6 +51,7 @@ export async function getChains() {
     return handleApiError(error);
   }
 }
+
 export async function getChainQueue() {
   try {
     const response = await api.get("/chains/queue");
