@@ -7,6 +7,6 @@ export const ADMIN_USERID = [
 ];
 export const PING_ROLESID = ["1556483064639529020"];
 export const minChainAccountCount = 3;
-export const maxPaymentAttempts = 5;
+export const maxPaymentAttempts = 9;
 
 export const excludeChains: string[] = ["1"];

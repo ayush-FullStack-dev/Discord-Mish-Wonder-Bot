@@ -36,6 +36,7 @@ import {
 import { getBestChain } from "../../utils/chain.js";
 import { errorLog } from "../../../logs/printLogs.js";
 import { getDiscountPercentage } from "../../services/discount.service.js";
+import { repriceCheckout } from "../../utils/repriceCheckout.js";
 
 async function handleCreateAccount(interaction: ButtonInteraction) {
   try {
@@ -89,6 +90,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
   let claimedOrderId: typeof Order.prototype._id | null = null;
   let providerConfirmed = false;
   let paymentAttempts = 0;
+  const repriceInterval = 3;
 
   try {
     await attemptInteractionResponse(interaction, () =>
@@ -238,62 +240,15 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     let activeCardId = order.card?._id;
 
     try {
-      const repriceResult = await repriceOrder(checkoutId);
+      const repriced = await repriceCheckout({
+        checkoutId,
+        orderId: order._id,
+      });
 
-      if (repriceResult.ok) {
-        const data = repriceResult.data;
-        const appliedDiscountPercentage = await getDiscountPercentage();
-
-        let discountedPrice: ReturnType<
-          typeof calculateDiscountedOrderPrice
-        > | null = null;
-
-        try {
-          discountedPrice = calculateDiscountedOrderPrice(
-            {
-              subtotal: data.price.subtotal,
-              service: data.price.service,
-              delivery: data.price.delivery,
-            },
-            appliedDiscountPercentage,
-          );
-        } catch (error) {
-          errorLog("Failed to calculate repriced checkout discount:", error);
-        }
-
-        const updateData: Record<string, unknown> = {
-          checkoutId: data.id,
-          orderId: data.order_id,
-          expiresAt: formatExpiryDate(data.expires_in),
-          cost: data.price.total,
-          repricedAt: new Date(),
-        };
-
-        if (discountedPrice) {
-          updateData.total = discountedPrice.total;
-          updateData.discountPercentage = appliedDiscountPercentage;
-        }
-
-        const newOrder = await Order.findByIdAndUpdate(
-          order._id,
-          {
-            $set: updateData,
-            $inc: {
-              repriceCount: 1,
-            },
-          },
-          { returnDocument: "after" },
-        );
-
-        if (newOrder) {
-          order = newOrder;
-          checkoutId = data.id;
-        }
-      } else {
-        throw new Error(repriceResult.message || "Failed to reprice checkout.");
-      }
+      checkoutId = repriced.checkoutId;
+      order = repriced.order;
     } catch (error) {
-      errorLog("Failed to reprice checkout before confirmation:", error);
+      errorLog("Failed to reprice checkout:", error);
     }
 
     let result = await confirmOrder(checkoutId);
@@ -337,6 +292,20 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         isLocked: false,
         status: "blocked",
       });
+
+      if (paymentAttempts % repriceInterval === 0) {
+        try {
+          const repriced = await repriceCheckout({
+            checkoutId,
+            orderId: order._id,
+          });
+
+          checkoutId = repriced.checkoutId;
+          order = repriced.order;
+        } catch (error) {
+          errorLog("Failed to reprice checkout:", error);
+        }
+      }
 
       if (paymentAttempts >= maxPaymentAttempts) {
         await logError(
