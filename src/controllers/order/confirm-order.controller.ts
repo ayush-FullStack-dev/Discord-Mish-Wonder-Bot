@@ -459,7 +459,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     await logOrderSuccess(
       interaction.client,
       "Order Completed Successfully",
-      data.tracking,
       {
         Customer: `<@${discordUserId}>`,
         "Checkout ID": checkoutId,

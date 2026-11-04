@@ -75,26 +75,9 @@ async function sendLog(
   }
 }
 
-function addTrackingSection(
-  container: ContainerBuilder,
-  tracking?: string,
-): ContainerBuilder {
-  const content = tracking
-    ? [
-        "<a:FoodDeliverybike1:1564011957105856513>  Track Your Order",
-        `[View Live Tracking →](${tracking})`,
-      ].join("          ")
-    : "Tracking information is currently unavailable.";
-
-  return container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(content),
-  );
-}
-
 export async function logOrderSuccess(
   client: Client,
   title: string,
-  tracking: string | undefined,
   details?: Record<string, string>,
 ): Promise<void> {
   try {
@@ -114,12 +97,7 @@ export async function logOrderSuccess(
       )
       .addSeparatorComponents(
         new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small),
-      )
-      .addSeparatorComponents(
-        new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small),
       );
-
-    addTrackingSection(container, tracking);
 
     const entries = Object.entries(details ?? {});
 
