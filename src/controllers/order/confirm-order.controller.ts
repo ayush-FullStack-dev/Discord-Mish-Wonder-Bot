@@ -289,6 +289,8 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           order = newOrder;
           checkoutId = data.id;
         }
+      } else {
+        throw new Error(repriceResult.message || "Failed to reprice checkout.");
       }
     } catch (error) {
       errorLog("Failed to reprice checkout before confirmation:", error);
