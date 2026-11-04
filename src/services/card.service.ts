@@ -100,7 +100,7 @@ export async function addManyCards(payload: ICard[]) {
 
 export async function getCards(condition: QueryFilter<ICard>) {
   try {
-    const data = await Card.find(condition);
+    const data = await Card.find(condition).lean();
 
     return {
       ok: true,
