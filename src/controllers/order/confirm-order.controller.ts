@@ -7,11 +7,7 @@ import {
 import { createAccountsOnChain } from "../../services/account.service.js";
 import { UserChain } from "../../models/userChain.model.js";
 import { Order } from "../../models/order.model.js";
-import {
-  confirmOrder,
-  editOrder,
-  repriceOrder,
-} from "../../services/order.service.js";
+import { confirmOrder, editOrder } from "../../services/order.service.js";
 import { createConfirmedOrderPanel } from "../../ui/order/createConfirmedOrderPanel.js";
 import { sendError } from "../../ui/utils/sendError.js";
 import {
@@ -19,12 +15,7 @@ import {
   handleInteractionError,
 } from "../../utils/error-handler.js";
 import { deductBalance, getBalance } from "../../services/balance.service.js";
-import {
-  calculateDiscountedOrderPrice,
-  centsToDollars,
-  dollarsToCents,
-  formatExpiryDate,
-} from "../../utils/util.js";
+import { centsToDollars, dollarsToCents } from "../../utils/util.js";
 import { logSuccess, logError, logOrderSuccess } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { decrypt } from "../../utils/encryption.js";
@@ -195,7 +186,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
       return;
     }
-
     claimedOrderId = order._id;
 
     if (
@@ -241,6 +231,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     try {
       const repriced = await repriceCheckout({
+        interaction,
         checkoutId,
         orderId: order._id,
       });
@@ -252,6 +243,18 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     }
 
     let result = await confirmOrder(checkoutId);
+
+    const retryLoadingOptions = {
+      title: "Trying Another Payment Method",
+      description: [
+        "**Your payment couldn't be processed with the current card.**",
+        "",
+        "We're trying another available payment method to complete your order.",
+        "Please wait while we process your confirmation.",
+      ].join("\n"),
+      footer: "You don't need to confirm your order again.",
+      ephemeral: false,
+    };
 
     if (result.code === "PAYMENT_ERROR") {
       try {
@@ -266,17 +269,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           },
         );
 
-        await sendLoading(interaction, {
-          title: "Trying Another Payment Method",
-          description: [
-            "**Your payment couldn't be processed with the current card.**",
-            "",
-            "We're trying another available payment method to complete your order.",
-            "Please wait while we process your confirmation.",
-          ].join("\n"),
-          footer: "You don't need to confirm your order again.",
-          ephemeral: false,
-        });
+        await sendLoading(interaction, retryLoadingOptions);
       } catch (error) {
         errorLog("Failed to send payment retry notification:", error);
       }
@@ -296,14 +289,20 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       if (paymentAttempts % repriceInterval === 0) {
         try {
           const repriced = await repriceCheckout({
+            interaction,
             checkoutId,
             orderId: order._id,
+            restoreLoading: retryLoadingOptions,
           });
 
           checkoutId = repriced.checkoutId;
           order = repriced.order;
+
         } catch (error) {
-          errorLog("Failed to reprice checkout:", error);
+          errorLog(
+            `[ORDER] Checkout repricing failed | Checkout: ${checkoutId} | Attempt: ${paymentAttempts}/${maxPaymentAttempts} | Error: ${error instanceof Error ? error.message : String(error)}`,
+            error,
+          );
         }
       }
 
