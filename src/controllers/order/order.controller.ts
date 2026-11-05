@@ -583,7 +583,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       savedOrderId,
       card._id,
       checkoutMessage,
-      data.expires_in,
+      expires_in,
     );
   } catch (error) {
     await logError(interaction.client, "Order Processing Failed", error, {
