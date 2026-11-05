@@ -24,6 +24,7 @@ import {
   calculateDiscountedOrderPrice,
   centsToDollars,
   formatExpiryDate,
+  getExpireIn,
   secondsToMilliseconds,
 } from "../../utils/util.js";
 import { getBalance } from "../../services/balance.service.js";
@@ -458,9 +459,8 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       interaction.member instanceof GuildMember
         ? interaction.member.displayName
         : (interaction.user.globalName ?? interaction.user.username);
-
     let savedOrderId: typeof Order.prototype._id;
-    let expires_in = data.expires_in;
+    let expiresAt = formatExpiryDate(data.expires_in);
     let updateConfig: IOrder = {
       name: displayName,
       discordUserId: interaction.user.id,
@@ -469,7 +469,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       total: calculatedTotal,
       discountPercentage: appliedDiscountPercentage,
       confirming: false,
-      expiresAt: formatExpiryDate(expires_in),
+      expiresAt,
       card: card._id,
       cost: data.price.total,
       repriceCount: 0,
@@ -492,17 +492,17 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
           ephemeral: false,
         },
       });
+      expiresAt = formatExpiryDate(repriced.data.expires_in);
       checkoutId = repriced.checkoutId;
+
       updateConfig = {
         ...updateConfig,
         checkoutId: repriced.data.id,
         orderId: repriced.data.order_id,
-        expiresAt: formatExpiryDate(repriced.data.expires_in),
+        expiresAt,
         repricedAt: new Date(),
         repriceCount: 1,
       };
-
-      expires_in = repriced.data.expires_in;
 
       const savedOrder = await Order.create(updateConfig);
 
@@ -566,7 +566,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       referral_applied: data.referral_applied,
       account: data.account,
       card: data.card,
-      expires_in,
+      expiresAt: expiresAt,
     };
 
     await sendLoading(interaction, {
@@ -602,7 +602,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       savedOrderId,
       card._id,
       checkoutMessage,
-      expires_in,
+      getExpireIn(expiresAt),
     );
   } catch (error) {
     await logError(interaction.client, "Order Processing Failed", error, {

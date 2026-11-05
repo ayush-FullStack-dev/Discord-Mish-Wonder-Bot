@@ -41,7 +41,7 @@ export interface CheckoutData {
   referral_applied?: boolean;
   account?: string | null;
   card?: string | null;
-  expires_in?: number;
+  expiresAt: Date;
 }
 
 interface CheckoutPanelOptions {
@@ -91,11 +91,9 @@ export function createCheckoutPanel({
     `### Total: ${money(price.total)}`,
   ].join("\n");
 
-  const expiresAt = Date.now() + (checkout.expires_in ?? 900) * 1000;
-
   const expiryText =
     `<a:timer:1564693488078168064> **Checkout expires in:** ` +
-    `${formatCountdown(expiresAt)}`;
+    `${formatCountdown(checkout.expiresAt)}`;
 
   const container = new ContainerBuilder()
     .setAccentColor(GREEN)

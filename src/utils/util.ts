@@ -33,14 +33,25 @@ export function centsToDollars(cents: bigint): string {
 export function dollarsToCents(dollars: number): bigint {
   return BigInt(Math.round(dollars * 100));
 }
+export function formatCountdown(expiresAt: Date | string): string {
+  const remaining = Math.max(
+    0,
+    Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000),
+  );
 
-export function formatCountdown(expiresAt: number): string {
-  const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
-
-  const minutes = Math.floor(remaining / 60);
+  const days = Math.floor(remaining / 86400);
+  const hours = Math.floor((remaining % 86400) / 3600);
+  const minutes = Math.floor((remaining % 3600) / 60);
   const seconds = remaining % 60;
 
-  return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+  return `${days}d ${hours}h ${minutes}m ${String(seconds).padStart(2, "0")}s`;
+}
+
+export function getExpireIn(expiresAt: Date | string | number): number {
+  return Math.max(
+    0,
+    Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000),
+  );
 }
 
 export function calculateDiscountedOrderPrice(
