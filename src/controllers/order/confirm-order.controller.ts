@@ -255,7 +255,10 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       checkoutId = repriced.checkoutId;
       order = repriced.order;
     } catch (error) {
-      errorLog("Failed to reprice checkout:", error);
+      errorLog(
+        `[ORDER][REPRICE_FAILED][SOURCE: INITIAL_CONFIRMATION] Checkout: ${checkoutId} | Error: ${error instanceof Error ? error.message : String(error)}`,
+        error,
+      );
     }
 
     let result = await confirmOrder(checkoutId);
@@ -315,13 +318,30 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           order = repriced.order;
         } catch (error) {
           errorLog(
-            `[ORDER] Checkout repricing failed | Checkout: ${checkoutId} | Attempt: ${paymentAttempts}/${maxPaymentAttempts} | Error: ${error instanceof Error ? error.message : String(error)}`,
+            `[ORDER][REPRICE_FAILED][SOURCE: RETRY_LOOP] Checkout: ${checkoutId} | Attempt: ${paymentAttempts}/${maxPaymentAttempts} | Error: ${error instanceof Error ? error.message : String(error)}`,
             error,
           );
         }
       }
 
       if (paymentAttempts >= maxPaymentAttempts) {
+        try {
+          const repriced = await repriceAndUpdateOrder({
+            interaction,
+            checkoutId,
+            orderId: order._id,
+            restoreLoading: retryLoadingOptions,
+          });
+
+          checkoutId = repriced.checkoutId;
+          order = repriced.order;
+        } catch (error) {
+          errorLog(
+            `[ORDER][REPRICE_FAILED][SOURCE: FINAL_RETRY_LIMIT] Checkout: ${checkoutId} | Attempt: ${paymentAttempts}/${maxPaymentAttempts} | Error: ${error instanceof Error ? error.message : String(error)}`,
+            error,
+          );
+        }
+
         await logError(
           interaction.client,
           "Payment Retry Limit Reached",
