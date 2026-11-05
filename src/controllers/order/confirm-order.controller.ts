@@ -252,6 +252,17 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     await updateOrderChannel(interaction, `🔄-${channelName}`);
 
+    try {
+      const repriced = await repriceAndUpdateOrder({
+        interaction,
+        checkoutId,
+        orderId: order._id,
+      });
+
+      checkoutId = repriced.checkoutId;
+      order = repriced.order;
+    } catch {}
+
     let result = await confirmOrder(checkoutId);
 
     const retryLoadingOptions = {
