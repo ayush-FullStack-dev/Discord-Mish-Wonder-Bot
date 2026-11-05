@@ -36,6 +36,24 @@ import { maxPaymentAttempts } from "../../constants/constant.js";
 import { getDiscountPercentage } from "../../services/discount.service.js";
 import { sendOrderExpired } from "../../ui/order/sendOrderExpired.js";
 import { ORDER_ERRORS } from "../../constants/errors.js";
+import { repriceCheckout } from "../../utils/repriceCheckout.js";
+import type { Types } from "mongoose";
+import { errorLog } from "../../../logs/printLogs.js";
+
+type IOrder = {
+  name: string;
+  discordUserId: string;
+  checkoutId: string;
+  orderId: string | null;
+  total: number;
+  discountPercentage: number;
+  confirming: boolean;
+  expiresAt: Date;
+  card: Types.ObjectId;
+  cost: number;
+  repriceCount: number;
+  repricedAt: Date | null;
+};
 
 async function scheduleOrderExpiry(
   orderId: typeof Order.prototype._id,
@@ -106,6 +124,7 @@ async function scheduleOrderExpiry(
 }
 
 export async function handleOrderModal(interaction: ModalSubmitInteraction) {
+  let checkoutId = null;
   await attemptInteractionResponse(interaction, () =>
     interaction.deferReply({
       flags: MessageFlags.Ephemeral,
@@ -331,6 +350,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     }
 
     const data = result.data;
+    checkoutId = data.id;
 
     let discountedPrice: ReturnType<typeof calculateDiscountedOrderPrice>;
     try {
@@ -345,7 +365,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     } catch (error) {
       let checkoutCancelled = false;
       try {
-        const cancellation = await cancelOrder(data.id);
+        const cancellation = await cancelOrder(checkoutId);
         checkoutCancelled = cancellation.ok;
         if (!cancellation.ok) {
           await logError(
@@ -354,7 +374,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
             cancellation.message,
             {
               User: interaction.user.id,
-              "Checkout ID": data.id,
+              "Checkout ID": checkoutId,
             },
           );
         }
@@ -365,7 +385,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
           cancellationError,
           {
             User: interaction.user.id,
-            "Checkout ID": data.id,
+            "Checkout ID": checkoutId,
           },
         );
       }
@@ -380,7 +400,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         error,
         {
           User: interaction.user.id,
-          "Checkout ID": data.id,
+          "Checkout ID": checkoutId,
         },
       );
       return;
@@ -394,7 +414,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       ).toFixed(2);
 
       try {
-        await cancelOrder(data.id);
+        await cancelOrder(checkoutId);
       } catch {
       } finally {
         return sendError(interaction, {
@@ -405,7 +425,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       }
     } else if (data.price.subtotal > env.maxOrderSubTotal) {
       try {
-        await cancelOrder(data.id);
+        await cancelOrder(checkoutId);
       } catch {
       } finally {
         return sendError(interaction, {
@@ -421,6 +441,87 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         ? interaction.member.displayName
         : (interaction.user.globalName ?? interaction.user.username);
 
+    let savedOrderId: typeof Order.prototype._id;
+    let expires_in = data.expires_in;
+    let updateConfig: IOrder = {
+      name: displayName,
+      discordUserId: interaction.user.id,
+      checkoutId: checkoutId,
+      orderId: data.order_id,
+      total: calculatedTotal,
+      discountPercentage: appliedDiscountPercentage,
+      confirming: false,
+      expiresAt: formatExpiryDate(expires_in),
+      card: card._id,
+      cost: data.price.total,
+      repriceCount: 0,
+      repricedAt: null,
+    };
+
+    try {
+      const repriced = await repriceCheckout({
+        interaction,
+        checkoutId,
+        restoreLoading: {
+          title: "Saving Your Order",
+          description: [
+            "**Almost There!**",
+            "",
+            "Your checkout has been updated successfully.",
+            "We're saving your order details. Please wait...",
+          ].join("\n"),
+          footer: "Please don't close this interaction.",
+          ephemeral: false,
+        },
+      });
+      checkoutId = repriced.checkoutId;
+      updateConfig = {
+        ...updateConfig,
+        checkoutId: repriced.data.id,
+        orderId: repriced.data.order_id,
+        expiresAt: formatExpiryDate(repriced.data.expires_in),
+        repricedAt: new Date(),
+        repriceCount: 1,
+      };
+
+      expires_in = repriced.data.expires_in;
+
+      const savedOrder = await Order.create(updateConfig);
+
+      savedOrderId = savedOrder._id;
+      await Card.findOneAndUpdate(
+        { _id: card._id },
+        { $set: { isLocked: true } },
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+
+      try {
+        await cancelOrder(checkoutId);
+      } catch (cancelError) {
+        errorLog("Failed to cancel checkout:", cancelError);
+      }
+
+      await sendErrorAndLog(
+        interaction,
+        "Failed to Save Order",
+        errorMessage,
+        "Your order has been cancelled. Please try again later.",
+        error,
+        {
+          "Order ID": String(checkoutId),
+          User: interaction.user.id,
+        },
+      );
+
+      return sendError(interaction, {
+        title: "Failed to Save Order",
+        description: `**Error:** ${errorMessage}`,
+        footer: "Your order has been cancelled. Please try again later.",
+      });
+    }
+
     await sendLoading(interaction, {
       title: "Preparing Order Ticket",
       description: [
@@ -432,54 +533,8 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       footer: "Your order will be sent here once confirmed.",
     });
 
-    let savedOrderId: typeof Order.prototype._id;
-    try {
-      const savedOrder = await Order.create({
-        name: displayName,
-        discordUserId: interaction.user.id,
-        checkoutId: data.id,
-        orderId: data.order_id,
-        total: calculatedTotal,
-        discountPercentage: appliedDiscountPercentage,
-        confirming: false,
-        expiresAt: formatExpiryDate(data.expires_in),
-        card: card._id,
-        cost: data.price.total,
-      });
-
-      savedOrderId = savedOrder._id;
-
-      await Card.findOneAndUpdate(
-        { _id: card._id },
-        { $set: { isLocked: true } },
-      );
-    } catch (error) {
-      try {
-        await cancelOrder(data.id);
-      } catch {}
-
-      await sendErrorAndLog(
-        interaction,
-        "Failed to Save Order",
-        "Failed to save your order to the database. Please try again later.",
-        "Your order has been cancelled. Please try again later.",
-        error,
-        {
-          "Order ID": String(data.id),
-          User: interaction.user.id,
-        },
-      );
-
-      return sendError(interaction, {
-        title: "Failed to Save Order",
-        description:
-          "Failed to save your order to the database. Please try again later.",
-        footer: "Your order has been cancelled. Please try again later.",
-      });
-    }
-
     const checkoutData: CheckoutData = {
-      id: data.id,
+      id: checkoutId,
       status: data.status,
       restaurant: data.restaurant,
       items: data.items.map((item) => ({
@@ -504,7 +559,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       referral_applied: data.referral_applied,
       account: data.account,
       card: data.card,
-      expires_in: data.expires_in,
+      expires_in,
     };
 
     const ticket = await createOrderTicket(interaction);

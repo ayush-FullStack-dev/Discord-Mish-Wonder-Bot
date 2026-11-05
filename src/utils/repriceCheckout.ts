@@ -8,30 +8,34 @@ import { sendLoading } from "../ui/utils/sendLoading.js";
 interface RepriceCheckoutOptions {
   interaction: RepliableInteraction;
   checkoutId: string;
-  orderId: typeof Order.prototype._id;
   restoreLoading?: {
     title?: string;
     description: string;
     footer?: string;
     ephemeral?: boolean;
-  };
+  } | null;
 }
 
-export async function repriceCheckout({
+interface RepriceAndUpdateOrderOptions extends RepriceCheckoutOptions {
+  orderId: typeof Order.prototype._id;
+}
+
+const defaultRestoreLoading = {
+  title: "Confirming Your Order",
+  description: [
+    "**Processing Order Confirmation**",
+    "",
+    "Confirming your order with the provider and processing your wallet payment...",
+    "Please wait while we complete the process.",
+  ].join("\n"),
+  footer: "Do not click confirm again while your order is processing.",
+  ephemeral: false,
+};
+
+async function executeRepriceCheckout({
   interaction,
   checkoutId,
-  orderId,
-  restoreLoading = {
-    title: "Confirming Your Order",
-    description: [
-      "**Processing Order Confirmation**",
-      "",
-      "Confirming your order with the provider and processing your wallet payment...",
-      "Please wait while we complete the process.",
-    ].join("\n"),
-    footer: "Do not click confirm again while your order is processing.",
-    ephemeral: false,
-  },
+  restoreLoading = defaultRestoreLoading,
 }: RepriceCheckoutOptions) {
   await sendLoading(interaction, {
     title: "Updating Checkout",
@@ -52,6 +56,7 @@ export async function repriceCheckout({
     }
 
     const data = repriceResult.data;
+
     const appliedDiscountPercentage = await getDiscountPercentage();
 
     const discountedPrice = calculateDiscountedOrderPrice(
@@ -63,34 +68,59 @@ export async function repriceCheckout({
       appliedDiscountPercentage,
     );
 
-    const updatedOrder = await Order.findByIdAndUpdate(
-      orderId,
-      {
-        $set: {
-          checkoutId: data.id,
-          orderId: data.order_id,
-          expiresAt: formatExpiryDate(data.expires_in),
-          cost: data.price.total,
-          total: discountedPrice.total,
-          discountPercentage: appliedDiscountPercentage,
-          repricedAt: new Date(),
-        },
-        $inc: { repriceCount: 1 },
-      },
-      { returnDocument: "after" },
-    );
-
-    if (!updatedOrder) {
-      throw new Error("Failed to update repriced order.");
-    }
+    const repricedOrderData = {
+      checkoutId: data.id,
+      orderId: data.order_id,
+      expiresAt: formatExpiryDate(data.expires_in),
+      cost: data.price.total,
+      total: discountedPrice.total,
+      discountPercentage: appliedDiscountPercentage,
+      repricedAt: new Date(),
+    };
 
     return {
       checkoutId: data.id,
-      order: updatedOrder,
+      order: repricedOrderData,
+      data,
     };
   } finally {
     if (restoreLoading) {
       await sendLoading(interaction, restoreLoading);
     }
   }
+}
+
+export async function repriceCheckout(options: RepriceCheckoutOptions) {
+  return executeRepriceCheckout(options);
+}
+
+export async function repriceAndUpdateOrder({
+  interaction,
+  checkoutId,
+  orderId,
+  restoreLoading,
+}: RepriceAndUpdateOrderOptions) {
+  const repriced = await executeRepriceCheckout({
+    interaction,
+    checkoutId,
+    ...(restoreLoading !== undefined && { restoreLoading }),
+  });
+  
+  const updatedOrder = await Order.findByIdAndUpdate(
+    orderId,
+    {
+      $set: repriced.order,
+      $inc: { repriceCount: 1 },
+    },
+    { returnDocument: "after" },
+  );
+
+  if (!updatedOrder) {
+    throw new Error("Failed to update repriced order.");
+  }
+
+  return {
+    ...repriced,
+    order: updatedOrder,
+  };
 }

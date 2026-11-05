@@ -27,7 +27,7 @@ import {
 import { getBestChain } from "../../utils/chain.js";
 import { errorLog } from "../../../logs/printLogs.js";
 import { getDiscountPercentage } from "../../services/discount.service.js";
-import { repriceCheckout } from "../../utils/repriceCheckout.js";
+import { repriceAndUpdateOrder } from "../../utils/repriceCheckout.js";
 
 async function handleCreateAccount(interaction: ButtonInteraction) {
   try {
@@ -235,7 +235,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     let activeCardId = order.card?._id;
 
     try {
-      const repriced = await repriceCheckout({
+      const repriced = await repriceAndUpdateOrder({
         interaction,
         checkoutId,
         orderId: order._id,
@@ -293,7 +293,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
       if (paymentAttempts % repriceInterval === 0) {
         try {
-          const repriced = await repriceCheckout({
+          const repriced = await repriceAndUpdateOrder({
             interaction,
             checkoutId,
             orderId: order._id,
