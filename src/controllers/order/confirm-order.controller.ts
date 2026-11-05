@@ -27,18 +27,7 @@ import {
 import { getBestChain } from "../../utils/chain.js";
 import { errorLog } from "../../../logs/printLogs.js";
 import { repriceAndUpdateOrder } from "../../utils/repriceCheckout.js";
-import { setChannelName } from "../../utils/discord.js";
-
-async function updateOrderChannel(
-  interaction: ButtonInteraction,
-  name: string,
-) {
-  try {
-    await setChannelName(interaction, name);
-  } catch (error) {
-    errorLog("Failed to update order channel name:", error);
-  }
-}
+import { updateOrderChannel } from "../../utils/discord.js";
 
 async function handleCreateAccount(interaction: ButtonInteraction) {
   try {

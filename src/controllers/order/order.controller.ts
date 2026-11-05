@@ -40,7 +40,7 @@ import { ORDER_ERRORS } from "../../constants/errors.js";
 import { repriceCheckout } from "../../utils/repriceCheckout.js";
 import type { Types } from "mongoose";
 import { errorLog } from "../../../logs/printLogs.js";
-import { setChannelName } from "../../utils/discord.js";
+import { updateOrderChannel } from "../../utils/discord.js";
 
 type IOrder = {
   name: string;
@@ -79,16 +79,24 @@ async function scheduleOrderExpiry(
     const order = await Order.findById(orderId);
 
     if (!order) {
-      await Card.findByIdAndUpdate(cardId, {
-        $set: { isLocked: false },
+      const usingCard = await Order.findOne({
+        card: cardId,
+        status: "pending",
+        _id: { $ne: orderId },
       });
+
+      if (!usingCard) {
+        await Card.findByIdAndUpdate(cardId, {
+          $set: { isLocked: false },
+        });
+      }
 
       await sendOrderExpired({
         replyTo: checkoutMessage,
         expiresIn,
       });
 
-      await setChannelName(interaction, channelName);
+      await updateOrderChannel(interaction, channelName);
       return;
     }
 
@@ -125,7 +133,7 @@ async function scheduleOrderExpiry(
       expiresIn,
     });
 
-    await setChannelName(interaction, channelName);
+    await updateOrderChannel(interaction, channelName);
   };
 
   const order = await Order.findById(orderId);
