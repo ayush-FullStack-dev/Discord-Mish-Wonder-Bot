@@ -72,7 +72,6 @@ export function createCheckoutPanel({
   userId,
 }: CheckoutPanelOptions): MessageCreateOptions {
   const { price } = checkout;
-
   const items = checkout.items.length
     ? checkout.items
         .map(

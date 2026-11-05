@@ -1,9 +1,13 @@
 import {
   ChannelType,
+  Message,
   type BaseInteraction,
   type TextChannel,
 } from "discord.js";
 import { errorLog } from "../../logs/printLogs.js";
+import { Order } from "../models/order.model.js";
+import { Card } from "../models/card.model.js";
+import { sendOrderExpired } from "../ui/order/sendOrderExpired.js";
 
 export async function setChannelName(
   interaction: BaseInteraction,
@@ -13,7 +17,34 @@ export async function setChannelName(
 
   if (!channel || !("setName" in channel)) return;
 
-  await channel.setName(name).catch(console.error);
+  await channel.setName(name).catch(errorLog);
+}
+
+export async function notifyOrderExpired(
+  ticket: TextChannel,
+  cardId: typeof Card.prototype._id,
+  checkoutMessage: Message<boolean>,
+  expiresIn: number,
+): Promise<void> {
+  const channelName = `⌛-${ticket.name.replace(/^[^\w]+-/, "")}`;
+
+  const usingCard = await Order.findOne({
+    card: cardId,
+    status: "pending",
+  });
+
+  if (!usingCard) {
+    await Card.findByIdAndUpdate(cardId, {
+      $set: { isLocked: false },
+    });
+  }
+
+  await sendOrderExpired({
+    replyTo: checkoutMessage,
+    expiresIn,
+  });
+
+  await updateTicketChannel(ticket, channelName);
 }
 
 export async function updateOrderChannel(

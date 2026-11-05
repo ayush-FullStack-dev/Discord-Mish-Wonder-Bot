@@ -34,10 +34,14 @@ export function dollarsToCents(dollars: number): bigint {
   return BigInt(Math.round(dollars * 100));
 }
 
-export function formatCountdown(expiresAt: Date | string): string {
+export function formatCountdown(expiresAt: Date | string | number): string {
   const remaining = Math.max(
     0,
-    Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000),
+    Math.ceil(
+      typeof expiresAt === "number"
+        ? expiresAt
+        : (new Date(expiresAt).getTime() - Date.now()) / 1000,
+    ),
   );
 
   const minutes = Math.floor(remaining / 60);

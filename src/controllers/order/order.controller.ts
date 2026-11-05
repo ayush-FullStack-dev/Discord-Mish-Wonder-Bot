@@ -42,6 +42,7 @@ import { repriceCheckout } from "../../utils/repriceCheckout.js";
 import type { Types } from "mongoose";
 import { errorLog } from "../../../logs/printLogs.js";
 import {
+  notifyOrderExpired,
   updateOrderChannel,
   updateTicketChannel,
 } from "../../utils/discord.js";
@@ -68,17 +69,34 @@ async function scheduleOrderExpiry(
   checkoutMessage: Message<boolean>,
   expiresIn: number,
 ): Promise<void> {
-  const channelName = `⌛-${ticket.name.replace(/^[^\w]+-/, "")}`;
+  let expiryNotificationSent = false;
 
-  const checkExpiry = async () => {
+  const notifyExpiredOnce = async (): Promise<void> => {
+    if (expiryNotificationSent) return;
+
+    expiryNotificationSent = true;
+
+    try {
+      await notifyOrderExpired(ticket, cardId, checkoutMessage, expiresIn);
+    } catch (error) {
+      expiryNotificationSent = false;
+      throw error;
+    }
+  };
+
+  const scheduleCheck = (delay: number): void => {
+    setTimeout(
+      () => {
+        void checkExpiry().catch(console.error);
+      },
+      Math.max(0, delay),
+    );
+  };
+
+  const checkExpiry = async (): Promise<void> => {
     const order = await Order.findById(orderId);
-
     if (!order) {
-      await sendOrderExpired({
-        replyTo: checkoutMessage,
-        expiresIn,
-      });
-      await updateTicketChannel(ticket, channelName);
+      await notifyExpiredOnce();
       return;
     }
 
@@ -87,10 +105,7 @@ async function scheduleOrderExpiry(
     const remainingTime = new Date(order.expiresAt).getTime() - Date.now();
 
     if (remainingTime > 0) {
-      setTimeout(() => {
-        void checkExpiry().catch(console.error);
-      }, remainingTime + 10_000);
-
+      scheduleCheck(remainingTime + 10_000);
       return;
     }
 
@@ -100,38 +115,39 @@ async function scheduleOrderExpiry(
       expiresAt: { $lte: new Date() },
     });
 
-    if (!deletedOrder) return;
-
-    const usingCard = await Order.findOne({
-      card: cardId,
-      status: "pending",
-    });
-
-    if (!usingCard) {
-      await Card.findByIdAndUpdate(cardId, {
-        $set: { isLocked: false },
-      });
+    if (deletedOrder) {
+      await notifyExpiredOnce();
+      return;
     }
 
-    await sendOrderExpired({
-      replyTo: checkoutMessage,
-      expiresIn,
-    });
-    await updateTicketChannel(ticket, channelName);
+    const latestOrder = await Order.findById(orderId);
+
+    if (!latestOrder) {
+      await notifyExpiredOnce();
+      return;
+    }
+
+    if (latestOrder.status !== "pending" || !latestOrder.expiresAt) {
+      return;
+    }
+    const latestRemainingTime =
+      new Date(latestOrder.expiresAt).getTime() - Date.now();
+
+    scheduleCheck(latestRemainingTime + 10_000);
   };
 
   const order = await Order.findById(orderId);
 
-  if (!order || order.status !== "pending" || !order.expiresAt) return;
+  if (!order) {
+    await notifyExpiredOnce();
+    return;
+  }
 
-  const delay = Math.max(
-    0,
-    new Date(order.expiresAt).getTime() - Date.now() + 10_000,
-  );
+  if (order.status !== "pending" || !order.expiresAt) return;
 
-  setTimeout(() => {
-    void checkExpiry().catch(console.error);
-  }, delay);
+  const delay = new Date(order.expiresAt).getTime() - Date.now() + 10_000;
+
+  scheduleCheck(delay);
 }
 
 export async function handleOrderModal(interaction: ModalSubmitInteraction) {

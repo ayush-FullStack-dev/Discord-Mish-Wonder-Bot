@@ -7,6 +7,7 @@ import {
   type Message,
 } from "discord.js";
 import { env } from "../../config/env.js";
+import { formatCountdown } from "../../utils/util.js";
 
 type SendOrderExpiredOptions = {
   replyTo: Message;
@@ -51,7 +52,7 @@ export async function sendOrderExpired({
     )
     .addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `-# Checkout sessions expire after ${expiresIn + 20} seconds of inactivity. Please complete your checkout before the timer runs out.`,
+        `-# Checkout sessions expire after ${formatCountdown(expiresIn + 20)} of inactivity. Please complete your checkout before the timer runs out.`,
       ),
     );
 
