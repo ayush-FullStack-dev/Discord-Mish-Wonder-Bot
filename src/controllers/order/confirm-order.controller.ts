@@ -88,6 +88,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     interaction.member instanceof GuildMember
       ? interaction.member.displayName
       : (interaction.user.globalName ?? interaction.user.username);
+
   const channelName = `order-${displayName
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, "-")
@@ -197,6 +198,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
       return;
     }
+
     claimedOrderId = order._id;
 
     if (
@@ -224,6 +226,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         ephemeral: true,
       });
     }
+
     const dollarBalance = Number(centsToDollars(balance));
 
     if (order.total > dollarBalance) {
@@ -256,12 +259,14 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       const repriced = await repriceAndUpdateOrder({
         interaction,
         checkoutId,
-        orderId: order._id,
+        orderId: claimedOrderId,
       });
 
       checkoutId = repriced.checkoutId;
       order = repriced.order;
-    } catch {}
+    } catch (error) {
+      errorLog("Initial checkout reprice failed:", error);
+    }
 
     let result = await confirmOrder(checkoutId);
 
@@ -296,60 +301,18 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       }
     }
 
+    let confirmFailed = result.code === "PAYMENT_ERROR";
+
     while (
       result.code === "PAYMENT_ERROR" &&
       paymentAttempts < maxPaymentAttempts
     ) {
-      let hasRepriced = false;
       paymentAttempts++;
 
       await Card.findByIdAndUpdate(activeCardId, {
         isLocked: false,
         status: "blocked",
       });
-
-      if (paymentAttempts % repriceInterval === 0) {
-        try {
-          const repriced = await repriceAndUpdateOrder({
-            interaction,
-            checkoutId,
-            orderId: order._id,
-            restoreLoading: retryLoadingOptions,
-          });
-
-          checkoutId = repriced.checkoutId;
-          order = repriced.order;
-          hasRepriced = true;
-        } catch {}
-      }
-
-      if (paymentAttempts >= maxPaymentAttempts) {
-        await logError(
-          interaction.client,
-          "Payment Retry Limit Reached",
-          "All payment attempts failed. Every declined payment method has been blocked.",
-          {
-            User: interaction.user.id,
-            "Checkout ID": checkoutId,
-            "Failed Attempts": String(paymentAttempts),
-            Status: "Maximum payment attempts reached",
-          },
-        );
-
-        await sendError(interaction, {
-          title: "Unable to Confirm Your Order",
-          description: [
-            "We couldn't complete your payment with the available cards.",
-            "",
-            "**Please click Confirm again to retry your order.**",
-          ].join("\n"),
-          footer: "Your order is still pending.",
-          ephemeral: false,
-        });
-
-        await updateOrderChannel(interaction, `🔁-${channelName}`);
-        return;
-      }
 
       const newCard = await Card.findOneAndUpdate(
         {
@@ -392,37 +355,128 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       }
 
       attemptedCardIds.add(newCard._id.toString());
+      activeCardId = newCard._id;
 
-      if (!hasRepriced) {
+      const updatedOrderResult = await Order.findByIdAndUpdate(
+        claimedOrderId!,
+        {
+          card: newCard._id,
+        },
+        {
+          returnDocument: "after",
+        },
+      ).exec();
+
+      if (!updatedOrderResult) {
+        await Card.findByIdAndUpdate(newCard._id, {
+          isLocked: false,
+        });
+
+        result = {
+          ok: false,
+          code: "ORDER_UPDATE_FAILED",
+          message: "Failed to update the order payment method.",
+        };
+
+        break;
+      }
+
+      order = updatedOrderResult;
+
+      if (paymentAttempts % repriceInterval === 0) {
+        try {
+          const repriced = await repriceAndUpdateOrder({
+            interaction,
+            checkoutId,
+            orderId: claimedOrderId!,
+            restoreLoading: retryLoadingOptions,
+          });
+
+          checkoutId = repriced.checkoutId;
+          order = repriced.order;
+        } catch (error) {
+          errorLog("[REPRICE_FAILED]", error);
+        }
+      } else if (confirmFailed) {
         const editResult = await editOrder(checkoutId, {
           card: `${decrypt(newCard.encryptedCardNumber)},${newCard.expiryDate},${decrypt(newCard.encryptedCardCvv)},${newCard.zipcode}`,
         });
 
         if (!editResult.ok) {
-          if (
+          const isCheckoutError =
             editResult.code === "NO_SUCH_CHECKOUT" ||
-            editResult.message?.includes("No checkout with that id")
-          ) {
-            result = {
-              ok: false,
-              code: "NO_SUCH_CHECKOUT",
-              message: editResult.message,
-            };
-            break;
+            /no checkout with that id|checkout.*(expired|not found|missing)/i.test(
+              editResult.message ?? "",
+            );
+
+          if (isCheckoutError) {
+            let recovered = false;
+
+            for (
+              let recoveryAttempt = 1;
+              recoveryAttempt <= 2;
+              recoveryAttempt++
+            ) {
+              try {
+                const repriced = await repriceAndUpdateOrder({
+                  interaction,
+                  checkoutId,
+                  orderId: claimedOrderId!,
+                  restoreLoading: retryLoadingOptions,
+                });
+
+                checkoutId = repriced.checkoutId;
+                order = repriced.order;
+
+                result = await confirmOrder(checkoutId);
+
+                if (result.ok) {
+                  recovered = true;
+                  break;
+                }
+
+                if (result.code !== "PAYMENT_ERROR") {
+                  break;
+                }
+              } catch (error) {
+                console.error("[CHECKOUT_RECOVERY_FAILED]", error);
+
+                result = {
+                  ok: false,
+                  code: "CHECKOUT_RECOVERY_FAILED",
+                  message:
+                    error instanceof Error
+                      ? error.message
+                      : "Checkout recovery failed.",
+                };
+
+                break;
+              }
+            }
+
+            if (recovered || result.code !== "PAYMENT_ERROR") {
+              break;
+            }
+
+            continue;
           }
 
-          continue;
+          await Card.findByIdAndUpdate(newCard._id, {
+            isLocked: false,
+          });
+
+          result = {
+            ok: false,
+            code: editResult.code ?? "EDIT_FAILED",
+            message: editResult.message ?? "Failed to update checkout.",
+          };
+
+          break;
         }
       }
 
-      activeCardId = newCard._id;
-
-      await Order.findByIdAndUpdate(order._id, {
-        card: newCard._id,
-      });
-
-      const retryConfirmStartedAt = Date.now();
       result = await confirmOrder(checkoutId);
+      confirmFailed = result.code === "PAYMENT_ERROR";
     }
 
     if (!result.ok) {
@@ -463,8 +517,11 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       });
     }
 
-    const expectedTotalCents = dollarsToCents(order.total);
+    if (!order) {
+      throw new Error("Order not found during confirmation.");
+    }
 
+    const expectedTotalCents = dollarsToCents(order.total);
     const validatedCustomerTotal = order.total;
     const orderTotalCents = expectedTotalCents;
 
@@ -524,7 +581,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     try {
       const updatedOrder = await Order.findOneAndUpdate(
         {
-          _id: order._id,
+          _id: claimedOrderId!,
           discordUserId,
           status: "pending",
           confirming: true,
