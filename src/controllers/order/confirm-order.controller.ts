@@ -82,6 +82,8 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
   let providerConfirmed = false;
   let paymentAttempts = 0;
   const repriceInterval = 3;
+  const attemptedCardIds = new Set<string>();
+
   const displayName =
     interaction.member instanceof GuildMember
       ? interaction.member.displayName
@@ -243,23 +245,12 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     }
 
     let activeCardId = order.card?._id;
-    await updateOrderChannel(interaction, `🔄-${channelName}`);
 
-    try {
-      const repriced = await repriceAndUpdateOrder({
-        interaction,
-        checkoutId,
-        orderId: order._id,
-      });
-
-      checkoutId = repriced.checkoutId;
-      order = repriced.order;
-    } catch (error) {
-      errorLog(
-        `[ORDER][REPRICE_FAILED][SOURCE: INITIAL_CONFIRMATION] Checkout: ${checkoutId} | Error: ${error instanceof Error ? error.message : String(error)}`,
-        error,
-      );
+    if (activeCardId) {
+      attemptedCardIds.add(activeCardId.toString());
     }
+
+    await updateOrderChannel(interaction, `🔄-${channelName}`);
 
     let result = await confirmOrder(checkoutId);
 
@@ -298,6 +289,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       result.code === "PAYMENT_ERROR" &&
       paymentAttempts < maxPaymentAttempts
     ) {
+      let hasRepriced = false;
       paymentAttempts++;
 
       await Card.findByIdAndUpdate(activeCardId, {
@@ -316,32 +308,11 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
           checkoutId = repriced.checkoutId;
           order = repriced.order;
-        } catch (error) {
-          errorLog(
-            `[ORDER][REPRICE_FAILED][SOURCE: RETRY_LOOP] Checkout: ${checkoutId} | Attempt: ${paymentAttempts}/${maxPaymentAttempts} | Error: ${error instanceof Error ? error.message : String(error)}`,
-            error,
-          );
-        }
+          hasRepriced = true;
+        } catch {}
       }
 
       if (paymentAttempts >= maxPaymentAttempts) {
-        try {
-          const repriced = await repriceAndUpdateOrder({
-            interaction,
-            checkoutId,
-            orderId: order._id,
-            restoreLoading: retryLoadingOptions,
-          });
-
-          checkoutId = repriced.checkoutId;
-          order = repriced.order;
-        } catch (error) {
-          errorLog(
-            `[ORDER][REPRICE_FAILED][SOURCE: FINAL_RETRY_LIMIT] Checkout: ${checkoutId} | Attempt: ${paymentAttempts}/${maxPaymentAttempts} | Error: ${error instanceof Error ? error.message : String(error)}`,
-            error,
-          );
-        }
-
         await logError(
           interaction.client,
           "Payment Retry Limit Reached",
@@ -369,10 +340,20 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         return;
       }
 
-      const newCard = await Card.findOne({
-        isLocked: false,
-        status: "active",
-      }).sort({ isPin: -1 });
+      const newCard = await Card.findOneAndUpdate(
+        {
+          isLocked: false,
+          status: "active",
+          _id: { $nin: [...attemptedCardIds] },
+        },
+        {
+          $set: { isLocked: true },
+        },
+        {
+          sort: { isPin: -1 },
+          returnDocument: "after",
+        },
+      ).exec();
 
       if (!newCard) {
         await logError(
@@ -399,15 +380,29 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         return;
       }
 
-      const editResult = await editOrder(checkoutId, {
-        card: `${decrypt(newCard.encryptedCardNumber)},${newCard.expiryDate},${decrypt(newCard.encryptedCardCvv)},${newCard.zipcode}`,
-      });
+      attemptedCardIds.add(newCard._id.toString());
 
-      if (!editResult.ok) {
-        errorLog(
-          `[ORDER] Checkout edit failed | Checkout: ${checkoutId} | Error: ${editResult.message}`,
-        );
-        continue;
+      if (!hasRepriced) {
+        const editResult = await editOrder(checkoutId, {
+          card: `${decrypt(newCard.encryptedCardNumber)},${newCard.expiryDate},${decrypt(newCard.encryptedCardCvv)},${newCard.zipcode}`,
+        });
+
+        if (!editResult.ok) {
+          if (
+            editResult.code === "NO_SUCH_CHECKOUT" ||
+            editResult.message?.includes("No checkout with that id")
+          ) {
+            result = {
+              ok: false,
+              code: "NO_SUCH_CHECKOUT",
+              message: "Checkout expired or is no longer available.",
+            };
+
+            break;
+          }
+
+          continue;
+        }
       }
 
       activeCardId = newCard._id;
@@ -416,6 +411,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         card: newCard._id,
       });
 
+      const retryConfirmStartedAt = Date.now();
       result = await confirmOrder(checkoutId);
     }
 
