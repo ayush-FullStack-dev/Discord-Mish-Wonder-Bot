@@ -39,6 +39,7 @@ import { ORDER_ERRORS } from "../../constants/errors.js";
 import { repriceCheckout } from "../../utils/repriceCheckout.js";
 import type { Types } from "mongoose";
 import { errorLog } from "../../../logs/printLogs.js";
+import { setChannelName } from "../../utils/discord.js";
 
 type IOrder = {
   name: string;
@@ -56,11 +57,23 @@ type IOrder = {
 };
 
 async function scheduleOrderExpiry(
+  interaction: ModalSubmitInteraction,
   orderId: typeof Order.prototype._id,
   cardId: typeof Card.prototype._id,
   checkoutMessage: Message<boolean>,
   expiresIn: number,
 ): Promise<void> {
+  const displayName =
+    interaction.member instanceof GuildMember
+      ? interaction.member.displayName
+      : (interaction.user.globalName ?? interaction.user.username);
+  const channelName = `⌛-order-${displayName
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 85)}`;
+
   const checkExpiry = async () => {
     const order = await Order.findById(orderId);
 
@@ -69,10 +82,13 @@ async function scheduleOrderExpiry(
         $set: { isLocked: false },
       });
 
-      return await sendOrderExpired({
+      await sendOrderExpired({
         replyTo: checkoutMessage,
         expiresIn,
       });
+
+      await setChannelName(interaction, channelName);
+      return;
     }
 
     if (order.status !== "pending") return;
@@ -107,6 +123,8 @@ async function scheduleOrderExpiry(
       replyTo: checkoutMessage,
       expiresIn,
     });
+
+    await setChannelName(interaction, channelName);
   };
 
   const order = await Order.findById(orderId);
@@ -580,6 +598,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     });
 
     return void scheduleOrderExpiry(
+      interaction,
       savedOrderId,
       card._id,
       checkoutMessage,
