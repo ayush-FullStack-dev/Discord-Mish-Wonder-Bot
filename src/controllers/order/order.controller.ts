@@ -78,19 +78,19 @@ async function scheduleOrderExpiry(
   const checkExpiry = async () => {
     const order = await Order.findById(orderId);
 
-    if (!order) {
-      const usingCard = await Order.findOne({
-        card: cardId,
-        status: "pending",
-        _id: { $ne: orderId },
+    const usingCard = await Order.findOne({
+      card: cardId,
+      status: "pending",
+      _id: { $ne: orderId },
+    });
+
+    if (!usingCard) {
+      await Card.findByIdAndUpdate(cardId, {
+        $set: { isLocked: false },
       });
+    }
 
-      if (!usingCard) {
-        await Card.findByIdAndUpdate(cardId, {
-          $set: { isLocked: false },
-        });
-      }
-
+    if (!order) {
       await sendOrderExpired({
         replyTo: checkoutMessage,
         expiresIn,
