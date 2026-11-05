@@ -522,17 +522,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       });
     }
 
-    await sendLoading(interaction, {
-      title: "Preparing Order Ticket",
-      description: [
-        "**Setting Up Private Order Channel**",
-        "",
-        "Creating a secure, private channel for your order...",
-        "This ensures your order details stay confidential.",
-      ].join("\n"),
-      footer: "Your order will be sent here once confirmed.",
-    });
-
     const checkoutData: CheckoutData = {
       id: checkoutId,
       status: data.status,
@@ -561,6 +550,17 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       card: data.card,
       expires_in,
     };
+
+    await sendLoading(interaction, {
+      title: "Preparing Order Ticket",
+      description: [
+        "**Setting Up Private Order Channel**",
+        "",
+        "Creating a secure, private channel for your order...",
+        "This ensures your order details stay confidential.",
+      ].join("\n"),
+      footer: "Your order will be sent here once confirmed.",
+    });
 
     const ticket = await createOrderTicket(interaction);
     await ticket.send({
