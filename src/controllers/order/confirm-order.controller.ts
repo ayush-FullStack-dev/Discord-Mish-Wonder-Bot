@@ -26,8 +26,19 @@ import {
 } from "../../constants/constant.js";
 import { getBestChain } from "../../utils/chain.js";
 import { errorLog } from "../../../logs/printLogs.js";
-import { getDiscountPercentage } from "../../services/discount.service.js";
 import { repriceAndUpdateOrder } from "../../utils/repriceCheckout.js";
+import { setChannelName } from "../../utils/discord.js";
+
+async function updateOrderChannel(
+  interaction: ButtonInteraction,
+  name: string,
+) {
+  try {
+    await setChannelName(interaction, name);
+  } catch (error) {
+    errorLog("Failed to update order channel name:", error);
+  }
+}
 
 async function handleCreateAccount(interaction: ButtonInteraction) {
   try {
@@ -82,6 +93,16 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
   let providerConfirmed = false;
   let paymentAttempts = 0;
   const repriceInterval = 3;
+  const displayName =
+    interaction.member instanceof GuildMember
+      ? interaction.member.displayName
+      : (interaction.user.globalName ?? interaction.user.username);
+  const channelName = `order-${displayName
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 85)}`;
 
   try {
     await attemptInteractionResponse(interaction, () =>
@@ -233,6 +254,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     }
 
     let activeCardId = order.card?._id;
+    await updateOrderChannel(interaction, `🔄-${channelName}`);
 
     try {
       const repriced = await repriceAndUpdateOrder({
@@ -334,6 +356,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           ephemeral: false,
         });
 
+        await updateOrderChannel(interaction, `🔁-${channelName}`);
         return;
       }
 
@@ -362,6 +385,8 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
             "Please wait until an admin adds new cards before trying again.",
           ephemeral: false,
         });
+
+        await updateOrderChannel(interaction, `⚠️-${channelName}`);
         return;
       }
 
@@ -403,6 +428,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         ephemeral: false,
       });
 
+      await updateOrderChannel(interaction, `⚠️-${channelName}`);
       return;
     }
 
@@ -558,15 +584,8 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     const channel = interaction.channel;
 
-    const displayName =
-      interaction.member instanceof GuildMember
-        ? interaction.member.displayName
-        : (interaction.user.globalName ?? interaction.user.username);
-
     if (channel?.type === ChannelType.GuildText) {
-      await channel.setName(
-        `✅-order-${displayName.toLowerCase().replace(/[^a-z0-9-]/g, "-")}`,
-      );
+      await updateOrderChannel(interaction, `✅-${channelName}`);
     }
 
     try {
@@ -587,6 +606,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     errorLog("Failed to confirm order:", error);
 
+    await updateOrderChannel(interaction, `⚠️-${channelName}`);
     await handleInteractionError(interaction, error, "Failed to confirm order");
   } finally {
     if (claimedOrderId && !providerConfirmed) {
