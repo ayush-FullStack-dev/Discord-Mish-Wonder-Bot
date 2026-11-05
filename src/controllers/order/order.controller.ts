@@ -485,6 +485,33 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     };
 
     try {
+      const repriced = await repriceCheckout({
+        interaction,
+        checkoutId,
+        restoreLoading: {
+          title: "Saving Your Order",
+          description: [
+            "**Almost There!**",
+            "",
+            "Your checkout has been updated successfully.",
+            "We're saving your order details. Please wait...",
+          ].join("\n"),
+          footer: "Please don't close this interaction.",
+          ephemeral: false,
+        },
+      });
+      expiresAt = formatExpiryDate(repriced.data.expires_in);
+      checkoutId = repriced.checkoutId;
+
+      updateConfig = {
+        ...updateConfig,
+        checkoutId: repriced.data.id,
+        orderId: repriced.data.order_id,
+        expiresAt,
+        repricedAt: new Date(),
+        repriceCount: 1,
+      };
+
       const savedOrder = await Order.create(updateConfig);
 
       savedOrderId = savedOrder._id;

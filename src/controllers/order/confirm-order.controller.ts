@@ -406,9 +406,8 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
             result = {
               ok: false,
               code: "NO_SUCH_CHECKOUT",
-              message: "Checkout expired or is no longer available.",
+              message: editResult.message,
             };
-
             break;
           }
 
