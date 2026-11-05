@@ -11,6 +11,7 @@ import { deleteOrderTicket } from "../../helpers/deleteOrderTicket.js";
 import { logSuccess, logError } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { errorLog } from "../../../logs/printLogs.js";
+import { ADMIN_USERID } from "../../constants/constant.js";
 
 export async function handleCancelOrder(interaction: ButtonInteraction) {
   const displayName =
@@ -85,7 +86,10 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
       });
 
       return;
-    } else if (order.discordUserId !== discordUserId) {
+    } else if (
+      order.discordUserId !== discordUserId &&
+      ADMIN_USERID.includes(discordUserId)
+    ) {
       await logError(
         interaction.client,
         "Unauthorized Order Cancellation",

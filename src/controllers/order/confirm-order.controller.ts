@@ -7,7 +7,7 @@ import {
 import { createAccountsOnChain } from "../../services/account.service.js";
 import { UserChain } from "../../models/userChain.model.js";
 import { Order } from "../../models/order.model.js";
-import { confirmOrder, editOrder } from "../../services/order.service.js";
+import { confirmOrder } from "../../services/order.service.js";
 import { createConfirmedOrderPanel } from "../../ui/order/createConfirmedOrderPanel.js";
 import { sendError } from "../../ui/utils/sendError.js";
 import {
@@ -21,6 +21,7 @@ import { Card } from "../../models/card.model.js";
 import { decrypt } from "../../utils/encryption.js";
 import { sendLoading } from "../../ui/utils/sendLoading.js";
 import {
+  ADMIN_USERID,
   maxPaymentAttempts,
   minChainAccountCount,
 } from "../../constants/constant.js";
@@ -167,6 +168,16 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         ephemeral: false,
       });
       return;
+    } else if (
+      order.discordUserId !== discordUserId &&
+      ADMIN_USERID.includes(discordUserId)
+    ) {
+      return sendError(interaction, {
+        title: "Unauthorized Access",
+        description: "You are not authorized to confirm this order.",
+        footer: "Only the order owner or an admin can confirm it.",
+        ephemeral: true,
+      });
     } else if (order.status !== "pending") {
       const statusMessages = {
         confirmed: "This order has already been confirmed successfully.",
@@ -218,13 +229,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       });
 
       return;
-    } else if (order.discordUserId !== discordUserId) {
-      return sendError(interaction, {
-        title: "Unauthorized Access",
-        description: "You are not authorized to confirm this order.",
-        footer: "Only the user who place this order can confirm it.",
-        ephemeral: true,
-      });
     }
 
     const dollarBalance = Number(centsToDollars(balance));
@@ -300,8 +304,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         errorLog("Failed to send payment retry notification:", error);
       }
     }
-
-    let confirmFailed = result.code === "PAYMENT_ERROR";
 
     while (
       result.code === "PAYMENT_ERROR" &&
@@ -383,100 +385,22 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
       order = updatedOrderResult;
 
-      if (paymentAttempts % repriceInterval === 0) {
-        try {
-          const repriced = await repriceAndUpdateOrder({
-            interaction,
-            checkoutId,
-            orderId: claimedOrderId!,
-            restoreLoading: retryLoadingOptions,
-          });
-
-          checkoutId = repriced.checkoutId;
-          order = repriced.order;
-        } catch (error) {
-          errorLog("[REPRICE_FAILED]", error);
-        }
-      } else if (confirmFailed) {
-        const editResult = await editOrder(checkoutId, {
-          card: `${decrypt(newCard.encryptedCardNumber)},${newCard.expiryDate},${decrypt(newCard.encryptedCardCvv)},${newCard.zipcode}`,
+      try {
+        const repriced = await repriceAndUpdateOrder({
+          interaction,
+          checkoutId,
+          orderId: claimedOrderId!,
+          restoreLoading: retryLoadingOptions,
         });
 
-        if (!editResult.ok) {
-          const isCheckoutError =
-            editResult.code === "NO_SUCH_CHECKOUT" ||
-            /no checkout with that id|checkout.*(expired|not found|missing)/i.test(
-              editResult.message ?? "",
-            );
-
-          if (isCheckoutError) {
-            let recovered = false;
-
-            for (
-              let recoveryAttempt = 1;
-              recoveryAttempt <= 2;
-              recoveryAttempt++
-            ) {
-              try {
-                const repriced = await repriceAndUpdateOrder({
-                  interaction,
-                  checkoutId,
-                  orderId: claimedOrderId!,
-                  restoreLoading: retryLoadingOptions,
-                });
-
-                checkoutId = repriced.checkoutId;
-                order = repriced.order;
-
-                result = await confirmOrder(checkoutId);
-
-                if (result.ok) {
-                  recovered = true;
-                  break;
-                }
-
-                if (result.code !== "PAYMENT_ERROR") {
-                  break;
-                }
-              } catch (error) {
-                console.error("[CHECKOUT_RECOVERY_FAILED]", error);
-
-                result = {
-                  ok: false,
-                  code: "CHECKOUT_RECOVERY_FAILED",
-                  message:
-                    error instanceof Error
-                      ? error.message
-                      : "Checkout recovery failed.",
-                };
-
-                break;
-              }
-            }
-
-            if (recovered || result.code !== "PAYMENT_ERROR") {
-              break;
-            }
-
-            continue;
-          }
-
-          await Card.findByIdAndUpdate(newCard._id, {
-            isLocked: false,
-          });
-
-          result = {
-            ok: false,
-            code: editResult.code ?? "EDIT_FAILED",
-            message: editResult.message ?? "Failed to update checkout.",
-          };
-
-          break;
-        }
+        checkoutId = repriced.checkoutId;
+        order = repriced.order;
+      } catch (error) {
+        errorLog("[REPRICE_FAILED]", error);
+        continue;
       }
 
       result = await confirmOrder(checkoutId);
-      confirmFailed = result.code === "PAYMENT_ERROR";
     }
 
     if (!result.ok) {
