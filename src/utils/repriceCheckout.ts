@@ -4,6 +4,7 @@ import { repriceOrder } from "../services/order.service.js";
 import { getDiscountPercentage } from "../services/discount.service.js";
 import { calculateDiscountedOrderPrice, formatExpiryDate } from "./util.js";
 import { sendLoading } from "../ui/utils/sendLoading.js";
+import { success } from "../../logs/printLogs.js";
 
 interface RepriceCheckoutOptions {
   interaction: RepliableInteraction;
@@ -77,6 +78,12 @@ async function executeRepriceCheckout({
       discountPercentage: appliedDiscountPercentage,
       repricedAt: new Date(),
     };
+    
+    success("[REPRICE][CHECKOUT_ID_CHECK]", {
+      inputCheckoutId: checkoutId,
+      returnedCheckoutId: data.id,
+      matches: checkoutId === data.id,
+    });
 
     return {
       checkoutId: data.id,
@@ -105,7 +112,7 @@ export async function repriceAndUpdateOrder({
     checkoutId,
     ...(restoreLoading !== undefined && { restoreLoading }),
   });
-  
+
   const updatedOrder = await Order.findByIdAndUpdate(
     orderId,
     {
