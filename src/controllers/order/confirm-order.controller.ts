@@ -18,7 +18,6 @@ import { deductBalance, getBalance } from "../../services/balance.service.js";
 import { centsToDollars, dollarsToCents } from "../../utils/util.js";
 import { logSuccess, logError, logOrderSuccess } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
-import { decrypt } from "../../utils/encryption.js";
 import { sendLoading } from "../../ui/utils/sendLoading.js";
 import {
   ADMIN_USERID,
