@@ -203,9 +203,11 @@ export async function createOrder(
       ) ||
       (code === "CHECKOUT_FAILED" &&
         typeof responseError === "string" &&
-        responseError.includes(
+        (responseError.includes(
           "Issuer or Cardholder has put a restriction on the card",
-        ));
+        ) ||
+          responseError.includes("SAVING_CREDIT_CARD_FAILED") ||
+          responseError.includes("Braintree exception: Closed Card")));
 
     if (isCardRejected) {
       return {

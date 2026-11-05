@@ -7,7 +7,7 @@ import {
 import { createAccountsOnChain } from "../../services/account.service.js";
 import { UserChain } from "../../models/userChain.model.js";
 import { Order } from "../../models/order.model.js";
-import { confirmOrder } from "../../services/order.service.js";
+import { confirmOrder, editOrder } from "../../services/order.service.js";
 import { createConfirmedOrderPanel } from "../../ui/order/createConfirmedOrderPanel.js";
 import { sendError } from "../../ui/utils/sendError.js";
 import {
@@ -28,6 +28,7 @@ import { getBestChain } from "../../utils/chain.js";
 import { errorLog } from "../../../logs/printLogs.js";
 import { repriceAndUpdateOrder } from "../../utils/repriceCheckout.js";
 import { updateOrderChannel } from "../../utils/discord.js";
+import { decrypt } from "../../utils/encryption.js";
 
 async function handleCreateAccount(interaction: ButtonInteraction) {
   try {
@@ -309,6 +310,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       paymentAttempts < maxPaymentAttempts
     ) {
       paymentAttempts++;
+      let confirmFailed = result.code === "PAYMENT_ERROR";
 
       await Card.findByIdAndUpdate(activeCardId, {
         isLocked: false,
@@ -378,28 +380,70 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           code: "ORDER_UPDATE_FAILED",
           message: "Failed to update the order payment method.",
         };
-
         break;
       }
 
       order = updatedOrderResult;
 
-      try {
-        const repriced = await repriceAndUpdateOrder({
-          interaction,
-          checkoutId,
-          orderId: claimedOrderId!,
-          restoreLoading: retryLoadingOptions,
-        });
+      if (paymentAttempts % repriceInterval === 0) {
+        try {
+          const repriced = await repriceAndUpdateOrder({
+            interaction,
+            checkoutId,
+            orderId: order._id,
+            restoreLoading: retryLoadingOptions,
+          });
 
-        checkoutId = repriced.checkoutId;
-        order = repriced.order;
-      } catch (error) {
-        errorLog("[REPRICE_FAILED]", error);
-        continue;
+          checkoutId = repriced.checkoutId;
+          order = repriced.order;
+          confirmFailed = false;
+        } catch (error) {
+          errorLog("[REPRICE_FAILED]", error);
+          continue;
+        }
+      } else if (confirmFailed) {
+        try {
+          const editResult = await editOrder(checkoutId, {
+            card: `${decrypt(newCard.encryptedCardNumber)},${newCard.expiryDate},${decrypt(newCard.encryptedCardCvv)},${newCard.zipcode}`,
+          });
+
+          if (!editResult.ok) {
+            const isCheckoutError =
+              editResult.code === "NO_SUCH_CHECKOUT" ||
+              /no checkout with that id|checkout.*(expired|not found|missing)/i.test(
+                editResult.message ?? "",
+              );
+
+            if (!isCheckoutError) {
+              throw new Error(
+                editResult.message ?? "Failed to update checkout.",
+              );
+            }
+
+            errorLog("[CHECKOUT_MISSING]", editResult.message);
+          }
+        } catch (error) {
+          errorLog("[EDIT_ORDER_FAILED]", error);
+
+          try {
+            const repriced = await repriceAndUpdateOrder({
+              interaction,
+              checkoutId,
+              orderId: order._id,
+              restoreLoading: retryLoadingOptions,
+            });
+
+            checkoutId = repriced.checkoutId;
+            order = repriced.order;
+          } catch (repriceError) {
+            errorLog("[REPRICE_FAILED]", repriceError);
+            continue;
+          }
+        }
       }
 
       result = await confirmOrder(checkoutId);
+      confirmFailed = result.code === "PAYMENT_ERROR";
     }
 
     if (!result.ok) {
