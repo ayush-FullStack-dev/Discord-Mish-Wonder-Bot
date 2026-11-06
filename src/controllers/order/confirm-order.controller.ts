@@ -385,7 +385,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
       order = updatedOrderResult;
 
-      if (paymentAttempts % repriceInterval === 0) {
+      if (paymentAttempts % repriceInterval === 0 || paymentAttempts <= 1) {
         try {
           const repriced = await repriceAndUpdateOrder({
             interaction,
@@ -414,13 +414,17 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
                 editResult.message ?? "",
               );
 
-            if (!isCheckoutError) {
-              throw new Error(
-                editResult.message ?? "Failed to update checkout.",
-              );
+            if (isCheckoutError) {
+              errorLog("[CHECKOUT_MISSING]", {
+                checkoutId,
+                orderId: order._id,
+                code: editResult.code,
+                message: editResult.message,
+                action: "Triggering fallback repricing",
+              });
             }
 
-            errorLog("[CHECKOUT_MISSING]", editResult.message);
+            throw new Error(editResult.message ?? "Failed to update checkout.");
           }
         } catch (error) {
           errorLog("[EDIT_ORDER_FAILED]", error);
