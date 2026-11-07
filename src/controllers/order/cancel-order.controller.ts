@@ -12,6 +12,7 @@ import { logSuccess, logError } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { errorLog } from "../../../logs/printLogs.js";
 import { ADMIN_USERID } from "../../constants/constant.js";
+import mongoose from "mongoose";
 
 export async function handleCancelOrder(interaction: ButtonInteraction) {
   const displayName =
@@ -36,41 +37,42 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
       interaction.deferReply(),
     );
 
-    const checkoutId = interaction.customId.split(":")[2];
+    const buttonId = interaction.customId.split(":")[2];
     const discordUserId = interaction.user.id;
 
-    if (!checkoutId) {
+    if (!buttonId) {
       await logError(
         interaction.client,
-        "Invalid Checkout",
-        "The checkout ID is missing or invalid.",
+        "Invalid Order",
+        "The order ID is missing or invalid.",
         { User: discordUserId },
       );
 
       await sendError(interaction, {
-        title: "Invalid Checkout",
-        description: "The checkout ID is missing or invalid.",
+        title: "Invalid Order",
+        description: "The order ID is missing or invalid.",
         footer: "Please try again or contact support.",
         ephemeral: false,
       });
 
-      await closeTicket("Invalid checkout ID");
+      await closeTicket("Invalid order ID");
       return;
     }
 
-    const order = await Order.findOne({
-      checkoutId,
-      confirming: false,
-    }).populate("card", "_id last4Digits expiryDate status");
+    const isMongoOrderId = mongoose.Types.ObjectId.isValid(buttonId);
+    const order = await (isMongoOrderId
+      ? Order.findOne({ _id: buttonId, confirming: false })
+      : Order.findOne({ checkoutId: buttonId, confirming: false })
+    ).populate("card", "_id last4Digits expiryDate status");
 
     if (!order) {
       await logError(
         interaction.client,
         "Order Not Found",
-        "No order was found for the provided checkout ID.",
+        "No order was found for the provided order ID.",
         {
           User: discordUserId,
-          "Checkout ID": checkoutId,
+          [isMongoOrderId ? "Order ID" : "Legacy Checkout ID"]: buttonId,
         },
       );
 
@@ -86,9 +88,13 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
       });
 
       return;
-    } else if (
+    }
+
+    const checkoutId = order.checkoutId;
+
+    if (
       order.discordUserId !== discordUserId &&
-      ADMIN_USERID.includes(discordUserId)
+      !ADMIN_USERID.includes(discordUserId)
     ) {
       await logError(
         interaction.client,
@@ -97,14 +103,14 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
         {
           User: discordUserId,
           "Order Owner": order.discordUserId,
-          "Checkout ID": checkoutId,
+          "Order ID": String(order._id),
         },
       );
 
       await sendError(interaction, {
         title: "Unauthorized Access",
         description: "You are not authorized to cancel this order.",
-        footer: "Only the user who created this order can cancel it.",
+        footer: "Only the order owner or an authorized admin can cancel it.",
         ephemeral: true,
       });
 
@@ -184,7 +190,6 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
     const updatedOrder = await Order.findOneAndUpdate(
       {
         _id: order._id,
-        discordUserId,
         status: "pending",
       },
       {

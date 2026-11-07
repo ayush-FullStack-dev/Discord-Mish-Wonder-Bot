@@ -7,7 +7,7 @@ import {
 import { createAccountsOnChain } from "../../services/account.service.js";
 import { UserChain } from "../../models/userChain.model.js";
 import { Order } from "../../models/order.model.js";
-import { confirmOrder, editOrder } from "../../services/order.service.js";
+import { confirmOrder } from "../../services/order.service.js";
 import { createConfirmedOrderPanel } from "../../ui/order/createConfirmedOrderPanel.js";
 import { sendError } from "../../ui/utils/sendError.js";
 import {
@@ -26,9 +26,12 @@ import {
 } from "../../constants/constant.js";
 import { getBestChain } from "../../utils/chain.js";
 import { errorLog } from "../../../logs/printLogs.js";
-import { repriceAndUpdateOrder } from "../../utils/repriceCheckout.js";
 import { updateOrderChannel } from "../../utils/discord.js";
-import { decrypt } from "../../utils/encryption.js";
+import mongoose from "mongoose";
+import {
+  confirmWithRetry,
+  repriceExistingCheckout,
+} from "./confirm-order-recovery.js";
 
 async function handleCreateAccount(interaction: ButtonInteraction) {
   try {
@@ -81,8 +84,6 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
 export async function handleConfirmOrder(interaction: ButtonInteraction) {
   let claimedOrderId: typeof Order.prototype._id | null = null;
   let providerConfirmed = false;
-  let paymentAttempts = 0;
-  const repriceInterval = 3;
   const attemptedCardIds = new Set<string>();
 
   const displayName =
@@ -114,17 +115,41 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       ephemeral: false,
     });
 
-    let checkoutId = interaction.customId.split(":")[2];
+    const buttonId = interaction.customId.split(":")[2];
     const discordUserId = interaction.user.id;
 
-    if (!checkoutId) {
+    if (!buttonId) {
       await sendError(interaction, {
-        title: "Invalid Checkout",
-        description: "The checkout ID is missing or invalid.",
+        title: "Invalid Order",
+        description: "The order ID is missing or invalid.",
         footer: "Please try again or contact support.",
         ephemeral: false,
       });
       return;
+    }
+
+    let orderId: typeof Order.prototype._id | string = buttonId;
+
+    if (!mongoose.Types.ObjectId.isValid(buttonId)) {
+      const legacyOrder = await Order.findOne({ checkoutId: buttonId }).select(
+        "_id",
+      );
+
+      if (!legacyOrder) {
+        await sendError(interaction, {
+          title: "Order Unavailable",
+          description: [
+            "This order is no longer available in our system.",
+            "",
+            "**Please place a new order using the same cart code or a different one.**",
+          ].join("\n"),
+          footer: "This order is no longer associated with your account.",
+          ephemeral: false,
+        });
+        return;
+      }
+
+      orderId = legacyOrder._id;
     }
 
     const balance = await getBalance(discordUserId);
@@ -142,7 +167,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     let order = await Order.findOneAndUpdate(
       {
-        checkoutId,
+        _id: orderId,
         confirming: { $ne: true },
       },
       {
@@ -168,9 +193,13 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         ephemeral: false,
       });
       return;
-    } else if (
+    }
+
+    claimedOrderId = order._id;
+
+    if (
       order.discordUserId !== discordUserId &&
-      ADMIN_USERID.includes(discordUserId)
+      !ADMIN_USERID.includes(discordUserId)
     ) {
       return sendError(interaction, {
         title: "Unauthorized Access",
@@ -210,7 +239,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       return;
     }
 
-    claimedOrderId = order._id;
+    let checkoutId = order.checkoutId;
 
     if (
       typeof order.discountPercentage !== "number" ||
@@ -260,19 +289,17 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     await updateOrderChannel(interaction, `🔄-${channelName}`);
 
     try {
-      const repriced = await repriceAndUpdateOrder({
+      const repriced = await repriceExistingCheckout(
         interaction,
         checkoutId,
-        orderId: claimedOrderId,
-      });
+        claimedOrderId,
+      );
 
       checkoutId = repriced.checkoutId;
       order = repriced.order;
     } catch (error) {
       errorLog("Initial checkout reprice failed:", error);
     }
-
-    let result = await confirmOrder(checkoutId);
 
     const retryLoadingOptions = {
       title: "Trying Another Payment Method",
@@ -286,7 +313,9 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       ephemeral: false,
     };
 
-    if (result.code === "PAYMENT_ERROR") {
+    let result = await confirmOrder(checkoutId);
+
+    if ("code" in result && result.code === "PAYMENT_ERROR") {
       try {
         await logError(
           interaction.client,
@@ -305,149 +334,95 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       }
     }
 
-    while (
-      result.code === "PAYMENT_ERROR" &&
-      paymentAttempts < maxPaymentAttempts
-    ) {
-      paymentAttempts++;
-      let confirmFailed = result.code === "PAYMENT_ERROR";
+    const retryResult = await confirmWithRetry({
+      interaction,
+      orderId: claimedOrderId,
+      checkoutId,
+      restoreLoading: retryLoadingOptions,
+      result,
+      activeCardId,
+      attemptedCardIds,
+      total: order.total,
+    });
 
-      await Card.findByIdAndUpdate(activeCardId, {
-        isLocked: false,
-        status: "blocked",
+    result = retryResult.result;
+    checkoutId = retryResult.checkoutId;
+    activeCardId = retryResult.activeCardId;
+    order.total = retryResult.total;
+
+    if (retryResult.failure?.kind === "no-card") {
+      await logError(
+        interaction.client,
+        "No Cards Available",
+        "No active payment methods are available for another confirmation attempt.",
+        {
+          User: discordUserId,
+          "Checkout ID": checkoutId,
+          "Failed Attempts": String(retryResult.paymentAttempts),
+        },
+      );
+
+      await sendError(interaction, {
+        title: "No Payment Methods Available",
+        description:
+          "This order cannot be confirmed right now because our system has no available cards.",
+        footer:
+          "Please wait until an admin adds new cards before trying again.",
+        ephemeral: false,
       });
 
-      const newCard = await Card.findOneAndUpdate(
+      await updateOrderChannel(interaction, `⚠️-${channelName}`);
+      return;
+    }
+
+    if (retryResult.failure?.kind === "order-update") {
+      await logError(
+        interaction.client,
+        "Order Payment Method Update Failed",
+        "The replacement card was locked, but the pending order record could not be updated.",
         {
-          isLocked: false,
-          status: "active",
-          _id: { $nin: [...attemptedCardIds] },
+          User: discordUserId,
+          "Order ID": String(claimedOrderId),
+          "Checkout ID": checkoutId,
         },
+      );
+      await sendError(interaction, {
+        title: "Order Update Failed",
+        description:
+          "We couldn't update the payment method for this order. Please contact support before trying again.",
+        footer: "No further payment attempt was made.",
+        ephemeral: false,
+      });
+      await updateOrderChannel(interaction, `⚠️-${channelName}`);
+      return;
+    }
+
+    if (retryResult.failure?.kind === "recovery") {
+      errorLog("[CHECKOUT_RECOVERY_FAILED]", {
+        orderId: String(claimedOrderId),
+        checkoutId,
+        editError: retryResult.failure.editError,
+        repriceError: retryResult.failure.repriceError,
+      });
+      await logError(
+        interaction.client,
+        "Checkout Recovery Requires Reconciliation",
+        "Editing and repricing the existing checkout both failed. The provider does not expose a status check, so a replacement checkout was not created.",
         {
-          $set: { isLocked: true },
+          User: discordUserId,
+          "Order ID": String(claimedOrderId),
+          "Checkout ID": checkoutId,
         },
-        {
-          sort: { isPin: -1 },
-          returnDocument: "after",
-        },
-      ).exec();
-
-      if (!newCard) {
-        await logError(
-          interaction.client,
-          "No Cards Available",
-          "No active payment methods are available for another confirmation attempt.",
-          {
-            User: discordUserId,
-            "Checkout ID": checkoutId,
-            "Failed Attempts": String(paymentAttempts),
-          },
-        );
-
-        await sendError(interaction, {
-          title: "No Payment Methods Available",
-          description:
-            "This order cannot be confirmed right now because our system has no available cards.",
-          footer:
-            "Please wait until an admin adds new cards before trying again.",
-          ephemeral: false,
-        });
-
-        await updateOrderChannel(interaction, `⚠️-${channelName}`);
-        return;
-      }
-
-      attemptedCardIds.add(newCard._id.toString());
-      activeCardId = newCard._id;
-
-      const updatedOrderResult = await Order.findByIdAndUpdate(
-        claimedOrderId!,
-        {
-          card: newCard._id,
-        },
-        {
-          returnDocument: "after",
-        },
-      ).exec();
-
-      if (!updatedOrderResult) {
-        await Card.findByIdAndUpdate(newCard._id, {
-          isLocked: false,
-        });
-
-        result = {
-          ok: false,
-          code: "ORDER_UPDATE_FAILED",
-          message: "Failed to update the order payment method.",
-        };
-        break;
-      }
-
-      order = updatedOrderResult;
-
-      if (paymentAttempts % repriceInterval === 0 || paymentAttempts <= 1) {
-        try {
-          const repriced = await repriceAndUpdateOrder({
-            interaction,
-            checkoutId,
-            orderId: order._id,
-            restoreLoading: retryLoadingOptions,
-          });
-
-          checkoutId = repriced.checkoutId;
-          order = repriced.order;
-          confirmFailed = false;
-        } catch (error) {
-          errorLog("[REPRICE_FAILED]", error);
-          continue;
-        }
-      } else if (confirmFailed) {
-        try {
-          const editResult = await editOrder(checkoutId, {
-            card: `${decrypt(newCard.encryptedCardNumber)},${newCard.expiryDate},${decrypt(newCard.encryptedCardCvv)},${newCard.zipcode}`,
-          });
-
-          if (!editResult.ok) {
-            const isCheckoutError =
-              editResult.code === "NO_SUCH_CHECKOUT" ||
-              /no checkout with that id|checkout.*(expired|not found|missing)/i.test(
-                editResult.message ?? "",
-              );
-
-            if (isCheckoutError) {
-              errorLog("[CHECKOUT_MISSING]", {
-                checkoutId,
-                orderId: order._id,
-                code: editResult.code,
-                message: editResult.message,
-                action: "Triggering fallback repricing",
-              });
-            }
-
-            throw new Error(editResult.message ?? "Failed to update checkout.");
-          }
-        } catch (error) {
-          errorLog("[EDIT_ORDER_FAILED]", error);
-
-          try {
-            const repriced = await repriceAndUpdateOrder({
-              interaction,
-              checkoutId,
-              orderId: order._id,
-              restoreLoading: retryLoadingOptions,
-            });
-
-            checkoutId = repriced.checkoutId;
-            order = repriced.order;
-          } catch (repriceError) {
-            errorLog("[REPRICE_FAILED]", repriceError);
-            continue;
-          }
-        }
-      }
-
-      result = await confirmOrder(checkoutId);
-      confirmFailed = result.code === "PAYMENT_ERROR";
+      );
+      await sendError(interaction, {
+        title: "Order Requires Manual Review",
+        description:
+          "We couldn't safely recover the existing checkout. No replacement checkout was created. Please contact support to verify the provider order before trying again.",
+        footer: "No further payment attempt was made.",
+        ephemeral: false,
+      });
+      await updateOrderChannel(interaction, `⚠️-${channelName}`);
+      return;
     }
 
     if (!result.ok) {
@@ -553,7 +528,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       const updatedOrder = await Order.findOneAndUpdate(
         {
           _id: claimedOrderId!,
-          discordUserId,
           status: "pending",
           confirming: true,
         },

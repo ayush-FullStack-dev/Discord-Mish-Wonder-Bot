@@ -524,6 +524,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
 
     const checkoutData: CheckoutData = {
       id: checkoutId,
+      orderId: savedOrderId.toString(),
       status: data.status,
       restaurant: data.restaurant,
       items: data.items.map((item) => ({
@@ -598,7 +599,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     );
   }
 }
-
 
 export async function handleCloseOrder(
   interaction: ChatInputCommandInteraction,

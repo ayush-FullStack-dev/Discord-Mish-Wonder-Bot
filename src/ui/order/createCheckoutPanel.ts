@@ -19,6 +19,7 @@ export interface CheckoutItem {
 
 export interface CheckoutData {
   id: string;
+  orderId: string;
   status: string;
   restaurant: string;
   items: CheckoutItem[];
@@ -171,7 +172,7 @@ export function createCheckoutPanel({
     );
 
   const confirmButton = new ButtonBuilder()
-    .setCustomId(`wonder:confirm:${checkout.id}`)
+    .setCustomId(`wonder:confirm:${checkout.orderId}`)
     .setLabel("Confirm Order")
     .setEmoji({
       name: "click",
@@ -180,7 +181,7 @@ export function createCheckoutPanel({
     .setStyle(ButtonStyle.Success);
 
   const cancelButton = new ButtonBuilder()
-    .setCustomId(`wonder:cancel:${checkout.id}`)
+    .setCustomId(`wonder:cancel:${checkout.orderId}`)
     .setLabel("Cancel Checkout")
     .setEmoji({
       name: "RemoveFromCart",
