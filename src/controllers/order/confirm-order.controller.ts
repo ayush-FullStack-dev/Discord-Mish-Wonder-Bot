@@ -47,6 +47,7 @@ import {
   isPaymentError,
 } from "./confirm-order-recovery.js";
 import { retryOrderWithReplacementCards } from "./order-retry.js";
+import { ORDER_ERRORS } from "../../constants/errors.js";
 
 async function handleCreateAccount(interaction: ButtonInteraction) {
   try {
@@ -413,19 +414,54 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           attemptedCardIds,
         });
 
-        if (!retryResult) return null;
+        if (!retryResult) {
+          return null;
+        }
 
-        const { result: checkoutResult, card: activeCard } = retryResult;
+        const {
+          result: checkoutResult,
+          card: activeCard,
+          attemptedCardIds: updatedAttemptedCardIds,
+        } = retryResult;
+
+        if (checkoutResult.code !== null) {
+          if (
+            [
+              "NO_CARD",
+              "CARD_REQUIRED",
+              "UNAUTHORIZED",
+              "UNKNOWN_ERROR",
+              "CANNOT_PRICE",
+            ].includes(checkoutResult.code)
+          ) {
+            await logError(
+              interaction.client,
+              "Order Failed",
+              checkoutResult.message ?? checkoutResult.code,
+              {
+                "Error Code": checkoutResult.code,
+                User: interaction.user.id,
+              },
+            );
+          }
+
+          const errorConfig = ORDER_ERRORS[checkoutResult.code];
+
+          await sendError(interaction, {
+            title: errorConfig?.title ?? "Checkout Failed",
+            description:
+              checkoutResult.message?.trim() ||
+              errorConfig?.description ||
+              "An unexpected error occurred.",
+            footer:
+              errorConfig?.footer ?? "Contact support if the issue persists.",
+          });
+
+          return null;
+        }
 
         if (!activeCard) {
           throw new Error("No payment card available after checkout retry.");
-        }
-
-        if (checkoutResult.code !== null) {
-          throw new Error(
-            checkoutResult.message ||
-              "Failed to create a replacement checkout.",
-          );
         }
 
         if (!("data" in checkoutResult)) {
@@ -436,12 +472,19 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
         const data = checkoutResult.data;
 
-        const checkoutOrder = await Order.findByIdAndUpdate(order?._id, {
-          checkoutId: data.id,
-          orderId: data.order_id,
-          expiresAt: formatExpiryDate(data.expires_in),
-          cost: data.price.total,
-        });
+        const checkoutOrder = await Order.findByIdAndUpdate(
+          order?._id,
+          {
+            $set: {
+              checkoutId: data.id,
+              orderId: data.order_id,
+              card: activeCard._id,
+              expiresAt: formatExpiryDate(data.expires_in),
+              cost: data.price.total,
+            },
+          },
+          { returnDocument: "after" },
+        );
 
         if (!checkoutOrder) {
           throw new Error("Failed to retrieve the updated checkout order.");
@@ -450,10 +493,11 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         order = checkoutOrder;
         checkoutId = data.id;
         activeCardId = activeCard._id;
+
         return {
-          checkout: checkoutResult.data,
+          checkout: data,
           card: activeCard,
-          attemptedCardIds: retryResult.attemptedCardIds,
+          attemptedCardIds: updatedAttemptedCardIds,
         };
       };
 

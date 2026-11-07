@@ -153,6 +153,12 @@ export async function retryOrderWithReplacementCards({
     );
   }
 
+  if (card?._id && (result.code != null || !("data" in result))) {
+    await Card.findByIdAndUpdate(card._id, {
+      $set: { isLocked: false },
+    });
+  }
+
   return {
     result,
     card,
