@@ -58,6 +58,7 @@ type IOrder = {
   expiresAt: Date;
   card: Types.ObjectId;
   cost: number;
+  cartCode: string;
   repriceCount: number;
   repricedAt: Date | null;
 };
@@ -149,7 +150,6 @@ async function scheduleOrderExpiry(
 
   scheduleCheck(delay);
 }
-
 export async function handleOrderModal(interaction: ModalSubmitInteraction) {
   let checkoutId = null;
   await attemptInteractionResponse(interaction, () =>
@@ -480,6 +480,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       expiresAt,
       card: card._id,
       cost: data.price.total,
+      cartCode,
       repriceCount: 0,
       repricedAt: null,
     };
@@ -597,6 +598,8 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     );
   }
 }
+
+
 export async function handleCloseOrder(
   interaction: ChatInputCommandInteraction,
 ) {

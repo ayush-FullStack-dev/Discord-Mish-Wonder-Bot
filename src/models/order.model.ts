@@ -68,6 +68,11 @@ const orderSchema = new Schema(
       index: true,
     },
 
+    cartCode: {
+      type: String,
+      required: true,
+    },
+
     repriceCount: {
       type: Number,
       default: 0,
