@@ -89,12 +89,6 @@ async function executeRepriceCheckout({
       repricedAt: new Date(),
     };
 
-    success("[REPRICE][CHECKOUT_ID_CHECK]", {
-      inputCheckoutId: checkoutId,
-      returnedCheckoutId: data.id,
-      matches: checkoutId === data.id,
-    });
-
     return {
       checkoutId: data.id,
       order: repricedOrderData,

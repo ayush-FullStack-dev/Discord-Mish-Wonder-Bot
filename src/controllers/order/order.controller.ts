@@ -46,6 +46,7 @@ import {
   updateOrderChannel,
   updateTicketChannel,
 } from "../../utils/discord.js";
+import { retryOrderWithReplacementCards } from "./order-retry.js";
 
 type IOrder = {
   name: string;
@@ -263,78 +264,20 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       );
     }
 
-    while (
-      result.code === "PAYMENT_ERROR" &&
-      paymentAttempts < maxPaymentAttempts
-    ) {
-      paymentAttempts++;
+    const retryResult = await retryOrderWithReplacementCards({
+      interaction,
+      result,
+      card,
+      cartCode,
+    });
 
-      await Card.findByIdAndUpdate(card?._id, {
-        isLocked: false,
-        status: "blocked",
-      });
+    if (!retryResult) return;
 
-      if (paymentAttempts >= maxPaymentAttempts) {
-        await sendError(interaction, {
-          title: "Unable to Process Your Payment",
-          description: [
-            "We couldn't complete your checkout after trying multiple payment methods.",
-            "",
-            "All declined payment methods have been temporarily blocked.",
-            "Please contact support for assistance.",
-          ].join("\n"),
-          footer: "No further payment attempts will be made.",
-        });
+    result = retryResult.result;
+    card = retryResult.card;
 
-        return await logError(
-          interaction.client,
-          "Payment Retry Limit Reached",
-          "All payment attempts failed. Every declined card has been blocked.",
-          {
-            User: interaction.user.id,
-            "Failed Attempts": String(paymentAttempts),
-            Status: "Maximum payment attempts reached",
-          },
-        );
-      }
-
-      const newCard = await Card.findOne({
-        isLocked: false,
-        status: "active",
-      }).sort({ isPin: -1 });
-
-      if (!newCard) {
-        await sendError(interaction, {
-          title: "No Payment Methods Available",
-          description:
-            "We couldn't find another available payment method to complete your checkout. Please contact support.",
-          footer: "Our team can help you complete your order.",
-        });
-
-        return await logError(
-          interaction.client,
-          "No Cards Available",
-          "No active payment methods are available for another checkout attempt.",
-          {
-            User: interaction.user.id,
-            "Failed Attempts": String(paymentAttempts),
-            Status: "No active cards available",
-          },
-        );
-      }
-
-      card = newCard;
-      result = await createOrder(
-        {
-          cartCode,
-        },
-        {
-          cardNumber: decrypt(newCard.encryptedCardNumber),
-          cvv: decrypt(newCard.encryptedCardCvv),
-          expiryDate: newCard.expiryDate,
-          zipcode: newCard.zipcode,
-        },
-      );
+    if (!card) {
+      throw new Error("No payment card available after checkout retry.");
     }
 
     if (result.code !== null && result.code !== undefined) {

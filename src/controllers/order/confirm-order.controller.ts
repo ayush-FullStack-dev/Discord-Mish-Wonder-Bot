@@ -8,7 +8,11 @@ import mongoose from "mongoose";
 import { createAccountsOnChain } from "../../services/account.service.js";
 import { UserChain } from "../../models/userChain.model.js";
 import { Order } from "../../models/order.model.js";
-import { confirmOrder, editOrder } from "../../services/order.service.js";
+import {
+  confirmOrder,
+  createOrder,
+  editOrder,
+} from "../../services/order.service.js";
 import { createConfirmedOrderPanel } from "../../ui/order/createConfirmedOrderPanel.js";
 import { sendError } from "../../ui/utils/sendError.js";
 import {
@@ -16,7 +20,11 @@ import {
   handleInteractionError,
 } from "../../utils/error-handler.js";
 import { deductBalance, getBalance } from "../../services/balance.service.js";
-import { centsToDollars, dollarsToCents } from "../../utils/util.js";
+import {
+  centsToDollars,
+  dollarsToCents,
+  formatExpiryDate,
+} from "../../utils/util.js";
 import { logSuccess, logError, logOrderSuccess } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { sendLoading } from "../../ui/utils/sendLoading.js";
@@ -36,7 +44,9 @@ import {
   unlockReplacementCard,
   getReplacementCardDetails,
   updateCheckoutForRetry,
+  isPaymentError,
 } from "./confirm-order-recovery.js";
+import { retryOrderWithReplacementCards } from "./order-retry.js";
 
 async function handleCreateAccount(interaction: ButtonInteraction) {
   try {
@@ -373,7 +383,79 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       }
 
       order = updatedOrder;
+
       const card = getReplacementCardDetails(newCard);
+
+      const createNewCheckout = async () => {
+        const cartCode = updatedOrder.cartCode;
+
+        if (!cartCode) {
+          throw new Error(
+            "Cart code is unavailable for creating a new checkout.",
+          );
+        }
+
+        const newCheckoutResult = await createOrder(
+          { cartCode },
+          {
+            cardNumber: card.cardNumber,
+            cvv: card.cvv,
+            expiryDate: newCard.expiryDate,
+            zipcode: newCard.zipcode,
+          },
+        );
+
+        const retryResult = await retryOrderWithReplacementCards({
+          interaction,
+          result: newCheckoutResult,
+          card: newCard,
+          cartCode,
+          attemptedCardIds,
+        });
+
+        if (!retryResult) return null;
+
+        const { result: checkoutResult, card: activeCard } = retryResult;
+
+        if (!activeCard) {
+          throw new Error("No payment card available after checkout retry.");
+        }
+
+        if (checkoutResult.code !== null) {
+          throw new Error(
+            checkoutResult.message ||
+              "Failed to create a replacement checkout.",
+          );
+        }
+
+        if (!("data" in checkoutResult)) {
+          throw new Error(
+            "Replacement checkout response did not contain data.",
+          );
+        }
+
+        const data = checkoutResult.data;
+
+        const checkoutOrder = await Order.findByIdAndUpdate(order?._id, {
+          checkoutId: data.id,
+          orderId: data.order_id,
+          expiresAt: formatExpiryDate(data.expires_in),
+          cost: data.price.total,
+        });
+
+        if (!checkoutOrder) {
+          throw new Error("Failed to retrieve the updated checkout order.");
+        }
+        
+        order = checkoutOrder;
+
+        return {
+          checkout: checkoutResult.data,
+          card: activeCard,
+          attemptedCardIds: retryResult.attemptedCardIds,
+        };
+      };
+
       const checkout = await updateCheckoutForRetry({
         interaction,
         checkoutId,
@@ -387,25 +469,25 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
       if (!checkout.ok) {
         errorLog("[CHECKOUT_RECOVERY_FAILED]", checkout.message);
+        const fallback = await createNewCheckout();
 
-        await sendError(interaction, {
-          title: "Checkout Recovery Failed",
-          description: checkout.message,
-          footer: "Please contact support if the issue persists.",
-          ephemeral: false,
-        });
+        if (!fallback) {
+          await updateOrderChannel(interaction, `⚠️-${channelName}`);
+          return;
+        }
 
-        await updateOrderChannel(interaction, `⚠️-${channelName}`);
-        return;
+        checkoutId = fallback.checkout.id;
+        activeCardId = fallback.card._id;
+        result = await confirmOrder(checkoutId);
+      } else {
+        checkoutId = checkout.data.checkoutId;
+
+        if (checkout.data.order) {
+          order = checkout.data.order;
+        }
+
+        result = await confirmOrder(checkoutId);
       }
-
-      checkoutId = checkout.data.checkoutId;
-      
-      if (checkout.data.order) {
-        order = checkout.data.order;
-      }
-
-      result = await confirmOrder(checkoutId);
     }
 
     if (!result.ok) {

@@ -3,13 +3,9 @@ import type { Types } from "mongoose";
 import { Card } from "../../models/card.model.js";
 import { Order } from "../../models/order.model.js";
 import { errorLog } from "../../../logs/printLogs.js";
-import {
-  editOrder,
-  type OrderCard,
-} from "../../services/order.service.js";
+import { editOrder, type OrderCard } from "../../services/order.service.js";
 import { decrypt } from "../../utils/encryption.js";
 import { repriceAndUpdateOrder } from "../../utils/repriceCheckout.js";
-
 
 interface RecoveryLoadingOptions {
   title?: string;
@@ -29,9 +25,7 @@ interface UpdateCheckoutOptions {
   restoreLoading: RecoveryLoadingOptions;
 }
 
-type RepricedCheckout = Awaited<
-  ReturnType<typeof repriceAndUpdateOrder>
->;
+type RepricedCheckout = Awaited<ReturnType<typeof repriceAndUpdateOrder>>;
 
 interface UpdateCheckoutData {
   checkoutId: string;
@@ -48,8 +42,18 @@ type UpdateCheckoutResult =
   | {
       ok: false;
       message: string;
+      code: string;
       data: null;
     };
+
+export function isPaymentError(result: unknown): boolean {
+  return (
+    typeof result === "object" &&
+    result !== null &&
+    "code" in result &&
+    result.code === "PAYMENT_ERROR"
+  );
+}
 
 export async function blockDeclinedCard(
   cardId: Types.ObjectId | undefined,
@@ -64,9 +68,7 @@ export async function blockDeclinedCard(
   });
 }
 
-export async function selectReplacementCard(
-  attemptedCardIds: Set<string>,
-) {
+export async function selectReplacementCard(attemptedCardIds: Set<string>) {
   return Card.findOneAndUpdate(
     {
       isLocked: false,
@@ -116,10 +118,7 @@ export async function updateOrderPaymentCard(
   ).exec();
 }
 
-export async function editCheckout(
-  checkoutId: string,
-  card: OrderCard,
-) {
+export async function editCheckout(checkoutId: string, card: OrderCard) {
   return editOrder(checkoutId, {
     card: `${card.cardNumber},${card.expiryDate},${card.cvv},${card.zipcode}`,
   });
@@ -150,66 +149,11 @@ export async function updateCheckoutForRetry({
   restoreLoading,
 }: UpdateCheckoutOptions): Promise<UpdateCheckoutResult> {
   try {
-    if (
-      paymentAttempts % repriceInterval === 0 ||
-      paymentAttempts <= 1
-    ) {
-      const repriced = await repriceCheckout(
-        interaction,
-        checkoutId,
-        orderId,
-        restoreLoading,
-      );
+    const shouldReprice =
+      paymentAttempts % repriceInterval === 0 || paymentAttempts <= 1;
 
-      return {
-        ok: true,
-        message: null,
-        data: {
-          checkoutId: repriced.checkoutId,
-          order: repriced.order,
-          confirmFailed: false,
-        },
-      };
-    }
-
-    if (confirmFailed) {
-      try {
-        const editResult = await editCheckout(checkoutId, card);
-
-        if (!editResult.ok) {
-          const isCheckoutError =
-            editResult.code === "NO_SUCH_CHECKOUT" ||
-            /no checkout with that id|checkout.*(expired|not found|missing)/i.test(
-              editResult.message ?? "",
-            );
-
-          if (isCheckoutError) {
-            errorLog("[CHECKOUT_MISSING]", {
-              checkoutId,
-              orderId,
-              code: editResult.code,
-              message: editResult.message,
-              action: "Triggering fallback repricing",
-            });
-          }
-
-          throw new Error(
-            editResult.message ?? "Failed to update checkout.",
-          );
-        }
-
-        return {
-          ok: true,
-          message: null,
-          data: {
-            checkoutId,
-            order: null,
-            confirmFailed,
-          },
-        };
-      } catch (error) {
-        errorLog("[EDIT_ORDER_FAILED]", error);
-
+    try {
+      if (shouldReprice) {
         const repriced = await repriceCheckout(
           interaction,
           checkoutId,
@@ -223,25 +167,94 @@ export async function updateCheckoutForRetry({
           data: {
             checkoutId: repriced.checkoutId,
             order: repriced.order,
-            confirmFailed,
+            confirmFailed: false,
           },
         };
       }
+    } catch (error) {
+      errorLog("[CHECKOUT_RECOVERY_FAILED]", error);
+
+      return {
+        ok: false,
+        code: "REPRICE_FAIL",
+        message:
+          error instanceof Error
+            ? error.message
+            : "An unexpected checkout recovery error occurred.",
+        data: null,
+      };
     }
 
-    return {
-      ok: true,
-      message: null,
-      data: {
+    if (!confirmFailed) {
+      return {
+        ok: true,
+        message: null,
+        data: {
+          checkoutId,
+          order: null,
+          confirmFailed,
+        },
+      };
+    }
+
+    try {
+      const editResult = await editCheckout(checkoutId, card);
+
+      if (!editResult.ok) {
+        const isCheckoutError =
+          editResult.code === "NO_SUCH_CHECKOUT" ||
+          /no checkout with that id|checkout.*(expired|not found|missing)/i.test(
+            editResult.message ?? "",
+          );
+
+        if (isCheckoutError) {
+          errorLog("[CHECKOUT_MISSING]", {
+            checkoutId,
+            orderId,
+            code: editResult.code,
+            message: editResult.message,
+            action: "Triggering fallback repricing",
+          });
+        }
+
+        throw new Error(editResult.message ?? "Failed to update checkout.");
+      }
+
+      return {
+        ok: true,
+        message: null,
+        data: {
+          checkoutId,
+          order: null,
+          confirmFailed,
+        },
+      };
+    } catch (editError) {
+      errorLog("[EDIT_ORDER_FAILED]", editError);
+
+      const repriced = await repriceCheckout(
+        interaction,
         checkoutId,
-        order: null,
-        confirmFailed,
-      },
-    };
+        orderId,
+        restoreLoading,
+      );
+
+      return {
+        ok: true,
+        message: null,
+        data: {
+          checkoutId: repriced.checkoutId,
+          order: repriced.order,
+          confirmFailed,
+        },
+      };
+    }
   } catch (error) {
     errorLog("[CHECKOUT_RECOVERY_FAILED]", error);
+
     return {
       ok: false,
+      code: "REPRICE_FAIL",
       message:
         error instanceof Error
           ? error.message
