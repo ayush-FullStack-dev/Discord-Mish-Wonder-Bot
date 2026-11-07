@@ -313,175 +313,89 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     let result = await confirmOrder(checkoutId);
 
+    let confirmedData = result.ok ? result.data : undefined;
+
     if ("code" in result && result.code === "PAYMENT_ERROR") {
-      try {
+      await logError(
+        interaction.client,
+        "Payment Retry Started",
+        "The initial payment method was declined. Trying alternative payment methods.",
+        {
+          User: discordUserId,
+          "Checkout ID": checkoutId,
+          "Maximum Attempts": String(maxPaymentAttempts),
+        },
+      );
+
+      await sendLoading(interaction, retryLoadingOptions);
+
+      let confirmed = false;
+      let previousCheckoutAlreadyCancelled = false;
+      let paymentAttempts = 0;
+
+      while (!confirmed && paymentAttempts < maxPaymentAttempts) {
+        paymentAttempts++;
+
+        const retry = await confirmWithRetry({
+          interaction,
+          orderId: claimedOrderId,
+          checkoutId,
+          order,
+          activeCardId,
+          attemptedCardIds,
+          restoreLoading: retryLoadingOptions,
+          previousCheckoutAlreadyCancelled,
+        });
+
+        checkoutId = retry.checkoutId;
+        order = retry.order;
+        activeCardId = retry.activeCardId;
+
+        confirmed = retry.confirmed;
+        confirmedData = retry.data;
+        previousCheckoutAlreadyCancelled =
+          retry.previousCheckoutAlreadyCancelled;
+      }
+
+      if (!confirmed || !confirmedData) {
         await logError(
           interaction.client,
-          "Payment Retry Started",
-          "The initial payment method was declined during order confirmation. Attempting alternative payment methods.",
+          "Payment Retry Failed",
+          "Payment could not be confirmed using the available payment methods.",
           {
-            User: interaction.user.id,
+            User: discordUserId,
+            "Order ID": String(claimedOrderId),
             "Checkout ID": checkoutId,
-            "Maximum Attempts": String(maxPaymentAttempts),
+            "Failed Attempts": String(paymentAttempts),
           },
         );
 
-        await sendLoading(interaction, retryLoadingOptions);
-      } catch (error) {
-        errorLog("Failed to send payment retry notification:", error);
+        await sendError(interaction, {
+          title: "Unable to Process Your Payment",
+          description:
+            "We couldn't complete the payment after trying the available payment methods.",
+          footer: "Please contact support if you need assistance.",
+          ephemeral: false,
+        });
+
+        await updateOrderChannel(interaction, `⚠️-${channelName}`);
+        return;
       }
     }
 
-    const retryResult = await confirmWithRetry({
-      interaction,
-      orderId: claimedOrderId,
-      checkoutId,
-      restoreLoading: retryLoadingOptions,
-      result,
-      activeCardId,
-      attemptedCardIds,
-      order,
-    });
+    if (!confirmedData) {
+      const message = result.ok
+        ? "The confirmed order data is unavailable."
+        : confirmedData.message;
 
-    result = retryResult.result;
-    checkoutId = retryResult.checkoutId;
-    activeCardId = retryResult.activeCardId;
-    order = retryResult.order;
-
-    if (retryResult.failure?.kind === "no-card") {
-      await logError(
-        interaction.client,
-        "No Cards Available",
-        "No active payment methods are available for another confirmation attempt.",
-        {
-          User: discordUserId,
-          "Checkout ID": checkoutId,
-          "Failed Attempts": String(retryResult.paymentAttempts),
-        },
-      );
-
-      await sendError(interaction, {
-        title: "No Payment Methods Available",
-        description:
-          "This order cannot be confirmed right now because our system has no available cards.",
-        footer:
-          "Please wait until an admin adds new cards before trying again.",
-        ephemeral: false,
+      await logError(interaction.client, "Order Confirmation Failed", message, {
+        User: discordUserId,
+        "Checkout ID": checkoutId,
       });
-
-      await updateOrderChannel(interaction, `⚠️-${channelName}`);
-      return;
-    }
-
-    if (retryResult.failure?.kind === "order-update") {
-      await logError(
-        interaction.client,
-        "Order Payment Method Update Failed",
-        "The replacement card was locked, but the pending order record could not be updated.",
-        {
-          User: discordUserId,
-          "Order ID": String(claimedOrderId),
-          "Checkout ID": checkoutId,
-        },
-      );
-      await sendError(interaction, {
-        title: "Order Update Failed",
-        description:
-          "We couldn't update the payment method for this order. Please contact support before trying again.",
-        footer: "No further payment attempt was made.",
-        ephemeral: false,
-      });
-      await updateOrderChannel(interaction, `⚠️-${channelName}`);
-      return;
-    }
-
-    if (retryResult.failure?.kind === "recovery") {
-      errorLog("[CHECKOUT_RECOVERY_FAILED]", {
-        orderId: String(claimedOrderId),
-        checkoutId,
-        message: retryResult.failure.message,
-        error: retryResult.failure.error,
-      });
-      await logError(
-        interaction.client,
-        "Checkout Recovery Requires Reconciliation",
-        retryResult.failure.message,
-        {
-          User: discordUserId,
-          "Order ID": String(claimedOrderId),
-          "Checkout ID": checkoutId,
-        },
-      );
-      await sendError(interaction, {
-        title: "Order Requires Manual Review",
-        description:
-          "We couldn't safely recover the existing checkout. No replacement checkout was created. Please contact support to verify the provider order before trying again.",
-        footer: "No further payment attempt was made.",
-        ephemeral: false,
-      });
-      await updateOrderChannel(interaction, `⚠️-${channelName}`);
-      return;
-    }
-
-    if (retryResult.failure?.kind === "fresh-checkout") {
-      await logError(
-        interaction.client,
-        "Fresh Checkout Recovery Failed",
-        retryResult.failure.message,
-        {
-          User: discordUserId,
-          "Order ID": String(claimedOrderId),
-          "Checkout ID": checkoutId,
-          "Error Code": retryResult.failure.code,
-        },
-      );
-      await sendError(interaction, {
-        title: "Order Requires Manual Review",
-        description: retryResult.failure.message,
-        footer: "Please contact support before trying again.",
-        ephemeral: false,
-      });
-      await updateOrderChannel(interaction, `⚠️-${channelName}`);
-      return;
-    }
-
-    if (retryResult.failure?.kind === "retry-limit") {
-      await logError(
-        interaction.client,
-        "Payment Retry Limit Reached",
-        retryResult.failure.message,
-        {
-          User: discordUserId,
-          "Order ID": String(claimedOrderId),
-          "Checkout ID": checkoutId,
-          "Failed Attempts": String(retryResult.paymentAttempts),
-        },
-      );
-      await sendError(interaction, {
-        title: "Unable to Process Your Payment",
-        description:
-          "We couldn't complete the payment after trying the available payment methods.",
-        footer: "No further payment attempts will be made.",
-        ephemeral: false,
-      });
-      await updateOrderChannel(interaction, `⚠️-${channelName}`);
-      return;
-    }
-
-    if (!result.ok) {
-      await logError(
-        interaction.client,
-        "Order Confirmation Failed",
-        result.message,
-        {
-          User: discordUserId,
-          "Checkout ID": checkoutId,
-        },
-      );
 
       await sendError(interaction, {
         title: "Order Confirmation Failed",
-        description: result.message,
+        description: message,
         footer: "Your order has not been marked as confirmed.",
         ephemeral: false,
       });
@@ -490,7 +404,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       return;
     }
 
-    const data = result.data;
+    const data = confirmedData;
     providerConfirmed = true;
 
     try {

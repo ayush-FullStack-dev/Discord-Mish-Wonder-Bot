@@ -60,7 +60,7 @@ async function cancelUntrackedCheckout(
   try {
     const cancellation = await cancelOrder(checkoutId);
     if (!cancellation.ok) {
-      await errorLog("Fresh checkout cancellation failed:", {
+      errorLog("Fresh checkout cancellation failed:", {
         checkoutId,
         message: cancellation.message,
       });
@@ -148,10 +148,7 @@ export async function createFreshCheckout({
     }
   }
 
-  const result = await createOrder(
-    { cartCode: order.cartCode },
-    card,
-  );
+  const result = await createOrder({ cartCode: order.cartCode }, card);
 
   if (result.code !== null && result.code !== undefined) {
     if (result.code === "PAYMENT_ERROR") {
@@ -250,8 +247,7 @@ export async function createFreshCheckout({
     ).total;
     expiresAt = formatExpiryDate(data.expires_in);
   } catch (error) {
-    const checkoutId =
-      typeof data.id === "string" ? data.id.trim() : "";
+    const checkoutId = typeof data.id === "string" ? data.id.trim() : "";
     let checkoutCancelled = false;
     if (checkoutId) {
       checkoutCancelled = await cancelUntrackedCheckout(checkoutId, cardId);
