@@ -26,12 +26,10 @@ import {
 } from "../../constants/constant.js";
 import { getBestChain } from "../../utils/chain.js";
 import { errorLog } from "../../../logs/printLogs.js";
+import { repriceAndUpdateOrder } from "../../utils/repriceCheckout.js";
 import { updateOrderChannel } from "../../utils/discord.js";
 import mongoose from "mongoose";
-import {
-  confirmWithRetry,
-  repriceExistingCheckout,
-} from "./confirm-order-recovery.js";
+import { confirmWithRetry } from "./confirm-order-recovery.js";
 
 async function handleCreateAccount(interaction: ButtonInteraction) {
   try {
@@ -289,11 +287,11 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     await updateOrderChannel(interaction, `🔄-${channelName}`);
 
     try {
-      const repriced = await repriceExistingCheckout(
+      const repriced = await repriceAndUpdateOrder({
         interaction,
         checkoutId,
-        claimedOrderId,
-      );
+        orderId: claimedOrderId,
+      });
 
       checkoutId = repriced.checkoutId;
       order = repriced.order;
@@ -342,13 +340,13 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       result,
       activeCardId,
       attemptedCardIds,
-      total: order.total,
+      order,
     });
 
     result = retryResult.result;
     checkoutId = retryResult.checkoutId;
     activeCardId = retryResult.activeCardId;
-    order.total = retryResult.total;
+    order = retryResult.order;
 
     if (retryResult.failure?.kind === "no-card") {
       await logError(
@@ -401,13 +399,13 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       errorLog("[CHECKOUT_RECOVERY_FAILED]", {
         orderId: String(claimedOrderId),
         checkoutId,
-        editError: retryResult.failure.editError,
-        repriceError: retryResult.failure.repriceError,
+        message: retryResult.failure.message,
+        error: retryResult.failure.error,
       });
       await logError(
         interaction.client,
         "Checkout Recovery Requires Reconciliation",
-        "Editing and repricing the existing checkout both failed. The provider does not expose a status check, so a replacement checkout was not created.",
+        retryResult.failure.message,
         {
           User: discordUserId,
           "Order ID": String(claimedOrderId),
@@ -419,6 +417,51 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         description:
           "We couldn't safely recover the existing checkout. No replacement checkout was created. Please contact support to verify the provider order before trying again.",
         footer: "No further payment attempt was made.",
+        ephemeral: false,
+      });
+      await updateOrderChannel(interaction, `⚠️-${channelName}`);
+      return;
+    }
+
+    if (retryResult.failure?.kind === "fresh-checkout") {
+      await logError(
+        interaction.client,
+        "Fresh Checkout Recovery Failed",
+        retryResult.failure.message,
+        {
+          User: discordUserId,
+          "Order ID": String(claimedOrderId),
+          "Checkout ID": checkoutId,
+          "Error Code": retryResult.failure.code,
+        },
+      );
+      await sendError(interaction, {
+        title: "Order Requires Manual Review",
+        description: retryResult.failure.message,
+        footer: "Please contact support before trying again.",
+        ephemeral: false,
+      });
+      await updateOrderChannel(interaction, `⚠️-${channelName}`);
+      return;
+    }
+
+    if (retryResult.failure?.kind === "retry-limit") {
+      await logError(
+        interaction.client,
+        "Payment Retry Limit Reached",
+        retryResult.failure.message,
+        {
+          User: discordUserId,
+          "Order ID": String(claimedOrderId),
+          "Checkout ID": checkoutId,
+          "Failed Attempts": String(retryResult.paymentAttempts),
+        },
+      );
+      await sendError(interaction, {
+        title: "Unable to Process Your Payment",
+        description:
+          "We couldn't complete the payment after trying the available payment methods.",
+        footer: "No further payment attempts will be made.",
         ephemeral: false,
       });
       await updateOrderChannel(interaction, `⚠️-${channelName}`);

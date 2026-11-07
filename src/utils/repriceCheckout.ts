@@ -1,8 +1,7 @@
 import type { RepliableInteraction } from "discord.js";
 import { Order } from "../models/order.model.js";
 import { repriceOrder } from "../services/order.service.js";
-import { getDiscountPercentage } from "../services/discount.service.js";
-import { calculateDiscountedOrderPrice, formatExpiryDate } from "./util.js";
+import { formatExpiryDate } from "./util.js";
 import { sendLoading } from "../ui/utils/sendLoading.js";
 import { success } from "../../logs/printLogs.js";
 
@@ -19,6 +18,27 @@ interface RepriceCheckoutOptions {
 
 interface RepriceAndUpdateOrderOptions extends RepriceCheckoutOptions {
   orderId: typeof Order.prototype._id;
+}
+
+export class RepricePersistenceError extends Error {
+  constructor(
+    message: string,
+    readonly checkoutId: string,
+    readonly originalError?: unknown,
+  ) {
+    super(message);
+    this.name = "RepricePersistenceError";
+  }
+}
+
+export class RepriceProviderError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+  ) {
+    super(message);
+    this.name = "RepriceProviderError";
+  }
 }
 
 const defaultRestoreLoading = {
@@ -53,32 +73,22 @@ async function executeRepriceCheckout({
     const repriceResult = await repriceOrder(checkoutId);
 
     if (!repriceResult.ok) {
-      throw new Error(repriceResult.message || "Failed to reprice checkout.");
+      throw new RepriceProviderError(
+        repriceResult.message || "Failed to reprice checkout.",
+        repriceResult.code,
+      );
     }
 
     const data = repriceResult.data;
 
-    const appliedDiscountPercentage = await getDiscountPercentage();
-
-    const discountedPrice = calculateDiscountedOrderPrice(
-      {
-        subtotal: data.price.subtotal,
-        service: data.price.service,
-        delivery: data.price.delivery,
-      },
-      appliedDiscountPercentage,
-    );
-
     const repricedOrderData = {
       checkoutId: data.id,
       orderId: data.order_id,
-      expiresAt: formatExpiryDate(data.expires_in),
       cost: data.price.total,
-      total: discountedPrice.total,
-      discountPercentage: appliedDiscountPercentage,
+      expiresAt: formatExpiryDate(data.expires_in),
       repricedAt: new Date(),
     };
-    
+
     success("[REPRICE][CHECKOUT_ID_CHECK]", {
       inputCheckoutId: checkoutId,
       returnedCheckoutId: data.id,
@@ -113,17 +123,29 @@ export async function repriceAndUpdateOrder({
     ...(restoreLoading !== undefined && { restoreLoading }),
   });
 
-  const updatedOrder = await Order.findByIdAndUpdate(
-    orderId,
-    {
-      $set: repriced.order,
-      $inc: { repriceCount: 1 },
-    },
-    { returnDocument: "after" },
-  );
+  let updatedOrder;
+  try {
+    updatedOrder = await Order.findByIdAndUpdate(
+      orderId,
+      {
+        $set: repriced.order,
+        $inc: { repriceCount: 1 },
+      },
+      { returnDocument: "after" },
+    );
+  } catch (error) {
+    throw new RepricePersistenceError(
+      "Failed to persist repriced checkout.",
+      repriced.checkoutId,
+      error,
+    );
+  }
 
   if (!updatedOrder) {
-    throw new Error("Failed to update repriced order.");
+    throw new RepricePersistenceError(
+      "Failed to update repriced order.",
+      repriced.checkoutId,
+    );
   }
 
   return {
