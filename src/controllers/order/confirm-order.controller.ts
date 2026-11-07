@@ -446,9 +446,10 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         if (!checkoutOrder) {
           throw new Error("Failed to retrieve the updated checkout order.");
         }
-        
-        order = checkoutOrder;
 
+        order = checkoutOrder;
+        checkoutId = data.id;
+        activeCardId = activeCard._id;
         return {
           checkout: checkoutResult.data,
           card: activeCard,
@@ -476,8 +477,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           return;
         }
 
-        checkoutId = fallback.checkout.id;
-        activeCardId = fallback.card._id;
         result = await confirmOrder(checkoutId);
       } else {
         checkoutId = checkout.data.checkoutId;
