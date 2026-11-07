@@ -386,7 +386,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     if (!confirmedData) {
       const message = result.ok
         ? "The confirmed order data is unavailable."
-        : confirmedData.message;
+        : result?.message;
 
       await logError(interaction.client, "Order Confirmation Failed", message, {
         User: discordUserId,
