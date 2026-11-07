@@ -4,23 +4,12 @@ import { Card } from "../../models/card.model.js";
 import { Order } from "../../models/order.model.js";
 import { errorLog } from "../../../logs/printLogs.js";
 import {
-  confirmOrder,
   editOrder,
   type OrderCard,
 } from "../../services/order.service.js";
 import { decrypt } from "../../utils/encryption.js";
-import {
-  repriceAndUpdateOrder,
-  RepricePersistenceError,
-  RepriceProviderError,
-} from "../../utils/repriceCheckout.js";
-import { createFreshCheckout } from "../../utils/createFreshCheckout.js";
+import { repriceAndUpdateOrder } from "../../utils/repriceCheckout.js";
 
-type ConfirmationResult = Awaited<ReturnType<typeof confirmOrder>>;
-type ConfirmedOrderData = Extract<ConfirmationResult, { ok: true }>["data"];
-type OrderDocument = ReturnType<typeof Order.hydrate>;
-type RepricedOrder = Awaited<ReturnType<typeof repriceAndUpdateOrder>>["order"];
-type RecoveryOrder = OrderDocument | RepricedOrder;
 
 interface RecoveryLoadingOptions {
   title?: string;
@@ -29,47 +18,38 @@ interface RecoveryLoadingOptions {
   ephemeral?: boolean;
 }
 
-interface RecoverCheckoutOptions {
+interface UpdateCheckoutOptions {
   interaction: ButtonInteraction;
   checkoutId: string;
-  orderId: typeof Order.prototype._id;
-  cardId: Types.ObjectId;
+  orderId: Types.ObjectId;
   card: OrderCard;
-  order: OrderDocument;
+  paymentAttempts: number;
+  repriceInterval: number;
+  confirmFailed: boolean;
   restoreLoading: RecoveryLoadingOptions;
-  previousCheckoutAlreadyCancelled: boolean;
 }
 
-interface ConfirmWithRetryOptions {
-  interaction: ButtonInteraction;
-  orderId: typeof Order.prototype._id;
+type RepricedCheckout = Awaited<
+  ReturnType<typeof repriceAndUpdateOrder>
+>;
+
+interface UpdateCheckoutData {
   checkoutId: string;
-  order: OrderDocument;
-  activeCardId: Types.ObjectId | undefined;
-  attemptedCardIds: Set<string>;
-  restoreLoading: RecoveryLoadingOptions;
-  previousCheckoutAlreadyCancelled: boolean;
+  order: RepricedCheckout["order"] | null;
+  confirmFailed: boolean;
 }
 
-export interface ConfirmWithRetryResult {
-  checkoutId: string;
-  order: RecoveryOrder;
-  activeCardId: Types.ObjectId | undefined;
-  confirmed: boolean;
-  previousCheckoutAlreadyCancelled: boolean;
-  data?: ConfirmedOrderData;
-}
-
-class CheckoutRecoveryError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
-    this.name = "CheckoutRecoveryError";
-  }
-}
-
-function isPaymentError(result: ConfirmationResult): boolean {
-  return "code" in result && result.code === "PAYMENT_ERROR";
-}
+type UpdateCheckoutResult =
+  | {
+      ok: true;
+      message: null;
+      data: UpdateCheckoutData;
+    }
+  | {
+      ok: false;
+      message: string;
+      data: null;
+    };
 
 export async function blockDeclinedCard(
   cardId: Types.ObjectId | undefined,
@@ -77,43 +57,66 @@ export async function blockDeclinedCard(
   if (!cardId) return;
 
   await Card.findByIdAndUpdate(cardId, {
-    $set: { isLocked: false, status: "blocked" },
+    $set: {
+      isLocked: false,
+      status: "blocked",
+    },
   });
 }
 
-async function unlockReplacementCard(cardId: Types.ObjectId): Promise<void> {
-  try {
-    await Card.findByIdAndUpdate(cardId, { $set: { isLocked: false } });
-  } catch (error) {
-    errorLog("Failed to unlock replacement card during order recovery:", error);
-    throw error;
-  }
-}
-
-export async function selectReplacementCard(attemptedCardIds: Set<string>) {
+export async function selectReplacementCard(
+  attemptedCardIds: Set<string>,
+) {
   return Card.findOneAndUpdate(
     {
       isLocked: false,
       status: "active",
       _id: { $nin: [...attemptedCardIds] },
     },
-    { $set: { isLocked: true } },
-    { sort: { isPin: -1 }, returnDocument: "after" },
+    {
+      $set: { isLocked: true },
+    },
+    {
+      sort: { isPin: -1 },
+      returnDocument: "after",
+    },
   ).exec();
 }
 
+export async function unlockReplacementCard(
+  cardId: Types.ObjectId,
+): Promise<void> {
+  await Card.findByIdAndUpdate(cardId, {
+    $set: { isLocked: false },
+  });
+}
+
+export function getReplacementCardDetails(card: {
+  encryptedCardNumber: string;
+  encryptedCardCvv: string;
+  expiryDate: string;
+  zipcode: string;
+}): OrderCard {
+  return {
+    cardNumber: decrypt(card.encryptedCardNumber),
+    cvv: decrypt(card.encryptedCardCvv),
+    expiryDate: card.expiryDate,
+    zipcode: card.zipcode,
+  };
+}
+
 export async function updateOrderPaymentCard(
-  orderId: typeof Order.prototype._id,
+  orderId: Types.ObjectId,
   cardId: Types.ObjectId,
 ) {
-  return Order.findOneAndUpdate(
-    { _id: orderId, status: "pending", confirming: true },
-    { $set: { card: cardId } },
+  return Order.findByIdAndUpdate(
+    orderId,
+    { card: cardId },
     { returnDocument: "after" },
   ).exec();
 }
 
-export async function editExistingCheckout(
+export async function editCheckout(
   checkoutId: string,
   card: OrderCard,
 ) {
@@ -122,10 +125,10 @@ export async function editExistingCheckout(
   });
 }
 
-export async function repriceExistingCheckout(
+export async function repriceCheckout(
   interaction: ButtonInteraction,
   checkoutId: string,
-  orderId: typeof Order.prototype._id,
+  orderId: Types.ObjectId,
   restoreLoading: RecoveryLoadingOptions,
 ) {
   return repriceAndUpdateOrder({
@@ -136,45 +139,22 @@ export async function repriceExistingCheckout(
   });
 }
 
-export async function recoverCheckout({
+export async function updateCheckoutForRetry({
   interaction,
   checkoutId,
   orderId,
-  cardId,
   card,
-  order,
+  paymentAttempts,
+  repriceInterval,
+  confirmFailed,
   restoreLoading,
-  previousCheckoutAlreadyCancelled,
-}: RecoverCheckoutOptions): Promise<{
-  checkoutId: string;
-  order: RecoveryOrder;
-  previousCheckoutAlreadyCancelled: boolean;
-  paymentError: boolean;
-}> {
-  if (!previousCheckoutAlreadyCancelled) {
-    let editSucceeded = false;
-
-    try {
-      const editResult = await editExistingCheckout(checkoutId, card);
-      editSucceeded = editResult.ok;
-    } catch (error) {
-      throw new CheckoutRecoveryError(
-        "The existing checkout edit outcome could not be verified. No replacement checkout was created.",
-        { cause: error },
-      );
-    }
-
-    if (editSucceeded) {
-      return {
-        checkoutId,
-        order,
-        previousCheckoutAlreadyCancelled: false,
-        paymentError: false,
-      };
-    }
-
-    try {
-      const repriced = await repriceExistingCheckout(
+}: UpdateCheckoutOptions): Promise<UpdateCheckoutResult> {
+  try {
+    if (
+      paymentAttempts % repriceInterval === 0 ||
+      paymentAttempts <= 1
+    ) {
+      const repriced = await repriceCheckout(
         interaction,
         checkoutId,
         orderId,
@@ -182,147 +162,91 @@ export async function recoverCheckout({
       );
 
       return {
-        checkoutId: repriced.checkoutId,
-        order: repriced.order,
-        previousCheckoutAlreadyCancelled: false,
-        paymentError: false,
+        ok: true,
+        message: null,
+        data: {
+          checkoutId: repriced.checkoutId,
+          order: repriced.order,
+          confirmFailed: false,
+        },
       };
-    } catch (error) {
-      if (!(error instanceof RepriceProviderError)) {
-        const message =
-          error instanceof RepricePersistenceError
-            ? "Repricing may have succeeded but could not be saved."
-            : "The repricing outcome could not be verified.";
+    }
 
-        throw new CheckoutRecoveryError(
-          `${message} No replacement checkout was created.`,
-          { cause: error },
+    if (confirmFailed) {
+      try {
+        const editResult = await editCheckout(checkoutId, card);
+
+        if (!editResult.ok) {
+          const isCheckoutError =
+            editResult.code === "NO_SUCH_CHECKOUT" ||
+            /no checkout with that id|checkout.*(expired|not found|missing)/i.test(
+              editResult.message ?? "",
+            );
+
+          if (isCheckoutError) {
+            errorLog("[CHECKOUT_MISSING]", {
+              checkoutId,
+              orderId,
+              code: editResult.code,
+              message: editResult.message,
+              action: "Triggering fallback repricing",
+            });
+          }
+
+          throw new Error(
+            editResult.message ?? "Failed to update checkout.",
+          );
+        }
+
+        return {
+          ok: true,
+          message: null,
+          data: {
+            checkoutId,
+            order: null,
+            confirmFailed,
+          },
+        };
+      } catch (error) {
+        errorLog("[EDIT_ORDER_FAILED]", error);
+
+        const repriced = await repriceCheckout(
+          interaction,
+          checkoutId,
+          orderId,
+          restoreLoading,
         );
+
+        return {
+          ok: true,
+          message: null,
+          data: {
+            checkoutId: repriced.checkoutId,
+            order: repriced.order,
+            confirmFailed,
+          },
+        };
       }
     }
-  }
 
-  const freshCheckout = await createFreshCheckout({
-    orderId,
-    previousCheckoutId: checkoutId,
-    cardId,
-    card,
-    previousCheckoutAlreadyCancelled,
-  });
-
-  if (freshCheckout.kind === "payment-error") {
     return {
-      checkoutId,
-      order,
-      previousCheckoutAlreadyCancelled: true,
-      paymentError: true,
+      ok: true,
+      message: null,
+      data: {
+        checkoutId,
+        order: null,
+        confirmFailed,
+      },
     };
-  }
-
-  if (freshCheckout.kind !== "created") {
-    throw new CheckoutRecoveryError(freshCheckout.message);
-  }
-
-  return {
-    checkoutId: freshCheckout.checkoutId,
-    order: freshCheckout.order,
-    previousCheckoutAlreadyCancelled: false,
-    paymentError: false,
-  };
-}
-
-export async function confirmWithRetry({
-  interaction,
-  orderId,
-  checkoutId,
-  order,
-  activeCardId,
-  attemptedCardIds,
-  restoreLoading,
-  previousCheckoutAlreadyCancelled,
-}: ConfirmWithRetryOptions): Promise<ConfirmWithRetryResult> {
-  await blockDeclinedCard(activeCardId);
-
-  const replacementCard = await selectReplacementCard(attemptedCardIds);
-  if (!replacementCard) {
-    throw new CheckoutRecoveryError("No active replacement card is available.");
-  }
-
-  const cardId = replacementCard._id;
-  attemptedCardIds.add(cardId.toString());
-
-  let updatedOrder: OrderDocument | null;
-
-  try {
-    updatedOrder = await updateOrderPaymentCard(orderId, cardId);
   } catch (error) {
-    await unlockReplacementCard(cardId);
-    throw error;
-  }
-
-  if (!updatedOrder) {
-    await unlockReplacementCard(cardId);
-    throw new CheckoutRecoveryError(
-      "The order could not be updated with the replacement card.",
-    );
-  }
-
-  const card: OrderCard = {
-    cardNumber: decrypt(replacementCard.encryptedCardNumber),
-    cvv: decrypt(replacementCard.encryptedCardCvv),
-    expiryDate: replacementCard.expiryDate,
-    zipcode: replacementCard.zipcode,
-  };
-
-  const recovery = await recoverCheckout({
-    interaction,
-    checkoutId,
-    orderId,
-    cardId,
-    card,
-    order: updatedOrder,
-    restoreLoading,
-    previousCheckoutAlreadyCancelled,
-  });
-
-  if (recovery.paymentError) {
-    await blockDeclinedCard(cardId);
-
+    errorLog("[CHECKOUT_RECOVERY_FAILED]", error);
     return {
-      checkoutId: recovery.checkoutId,
-      order: recovery.order,
-      activeCardId: undefined,
-      confirmed: false,
-      previousCheckoutAlreadyCancelled: true,
+      ok: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "An unexpected checkout recovery error occurred.",
+      data: null,
     };
   }
-
-  const confirmation = await confirmOrder(recovery.checkoutId);
-
-  if (isPaymentError(confirmation)) {
-    await blockDeclinedCard(cardId);
-
-    return {
-      checkoutId: recovery.checkoutId,
-      order: recovery.order,
-      activeCardId: undefined,
-      confirmed: false,
-      previousCheckoutAlreadyCancelled: false,
-    };
-  }
-
-  if (!confirmation.ok) {
-    throw new CheckoutRecoveryError(
-      "The replacement checkout could not be confirmed.",
-    );
-  }
-
-  return {
-    checkoutId: recovery.checkoutId,
-    order: recovery.order,
-    activeCardId: cardId,
-    confirmed: true,
-    previousCheckoutAlreadyCancelled: false,
-    data: confirmation.data,
-  };
 }
