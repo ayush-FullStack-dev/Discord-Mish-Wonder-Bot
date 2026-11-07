@@ -40,7 +40,7 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
     const buttonId = interaction.customId.split(":")[2];
     const discordUserId = interaction.user.id;
 
-    if (!buttonId) {
+    if (!buttonId || !mongoose.Types.ObjectId.isValid(buttonId)) {
       await logError(
         interaction.client,
         "Invalid Order",
@@ -59,11 +59,9 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
       return;
     }
 
-    const isMongoOrderId = mongoose.Types.ObjectId.isValid(buttonId);
-    const order = await (isMongoOrderId
-      ? Order.findOne({ _id: buttonId, confirming: false })
-      : Order.findOne({ checkoutId: buttonId, confirming: false })
-    ).populate("card", "_id last4Digits expiryDate status");
+    const order = await Order.findById(buttonId)
+      .where("confirming", false)
+      .populate("card", "_id last4Digits expiryDate status");
 
     if (!order) {
       await logError(
@@ -72,7 +70,7 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
         "No order was found for the provided order ID.",
         {
           User: discordUserId,
-          [isMongoOrderId ? "Order ID" : "Legacy Checkout ID"]: buttonId,
+          "Order ID": buttonId,
         },
       );
 
@@ -145,6 +143,26 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
         ephemeral: false,
       });
 
+      return;
+    }
+
+    if (typeof checkoutId !== "string" || !checkoutId.trim()) {
+      await logError(
+        interaction.client,
+        "Checkout Unavailable",
+        "The checkout ID for this order is unavailable.",
+        {
+          User: discordUserId,
+          "Order ID": String(order._id),
+        },
+      );
+
+      await sendError(interaction, {
+        title: "Order Unavailable",
+        description: "The checkout ID for this order is unavailable.",
+        footer: "Please contact support before trying again.",
+        ephemeral: false,
+      });
       return;
     }
 

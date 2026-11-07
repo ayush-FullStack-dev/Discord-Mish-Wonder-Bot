@@ -489,6 +489,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       const savedOrder = await Order.create(updateConfig);
 
       savedOrderId = savedOrder._id;
+      checkoutId = savedOrder.checkoutId;
       await Card.findOneAndUpdate(
         { _id: card._id },
         { $set: { isLocked: true } },

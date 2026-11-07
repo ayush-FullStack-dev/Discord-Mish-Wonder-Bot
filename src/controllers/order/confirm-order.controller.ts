@@ -4,6 +4,7 @@ import {
   MessageFlags,
   type ButtonInteraction,
 } from "discord.js";
+import mongoose from "mongoose";
 import { createAccountsOnChain } from "../../services/account.service.js";
 import { UserChain } from "../../models/userChain.model.js";
 import { Order } from "../../models/order.model.js";
@@ -121,35 +122,22 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       ephemeral: false,
     });
 
-    let checkoutId = interaction.customId.split(":")[2];
+    const orderId = interaction.customId.split(":")[2];
     const discordUserId = interaction.user.id;
 
-    if (!checkoutId) {
+    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
       await sendError(interaction, {
-        title: "Invalid Checkout",
-        description: "The checkout ID is missing or invalid.",
+        title: "Invalid Order",
+        description: "The order ID is missing or invalid.",
         footer: "Please try again or contact support.",
         ephemeral: false,
       });
       return;
     }
 
-    const balance = await getBalance(discordUserId);
-
-    if (balance === null) {
-      await sendError(interaction, {
-        title: "Wallet Not Found",
-        description: "You don't have a wallet to confirm this order.",
-        footer: "Please deposit funds and try again.",
-        ephemeral: false,
-      });
-
-      return;
-    }
-
     let order = await Order.findOneAndUpdate(
       {
-        checkoutId,
+        _id: orderId,
         confirming: { $ne: true },
       },
       {
@@ -175,9 +163,13 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         ephemeral: false,
       });
       return;
-    } else if (
+    }
+
+    claimedOrderId = order._id;
+
+    if (
       order.discordUserId !== discordUserId &&
-      ADMIN_USERID.includes(discordUserId)
+      !ADMIN_USERID.includes(discordUserId)
     ) {
       return sendError(interaction, {
         title: "Unauthorized Access",
@@ -197,16 +189,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         statusMessages[order.status as keyof typeof statusMessages] ??
         "This order cannot be confirmed at the moment.";
 
-      await Order.updateOne(
-        {
-          _id: order._id,
-          confirming: true,
-        },
-        {
-          $set: { confirming: false },
-        },
-      );
-
       await sendError(interaction, {
         title: "Order Cannot Be Confirmed",
         description,
@@ -217,7 +199,30 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       return;
     }
 
-    claimedOrderId = order._id;
+    let checkoutId = order.checkoutId;
+
+    if (typeof checkoutId !== "string" || !checkoutId.trim()) {
+      await sendError(interaction, {
+        title: "Checkout Unavailable",
+        description: "The checkout ID for this order is unavailable.",
+        footer: "Please contact support before trying again.",
+        ephemeral: false,
+      });
+      return;
+    }
+
+    const balance = await getBalance(discordUserId);
+
+    if (balance === null) {
+      await sendError(interaction, {
+        title: "Wallet Not Found",
+        description: "You don't have a wallet to confirm this order.",
+        footer: "Please deposit funds and try again.",
+        ephemeral: false,
+      });
+
+      return;
+    }
 
     if (
       typeof order.discountPercentage !== "number" ||
