@@ -25,7 +25,7 @@ import {
   dollarsToCents,
   formatExpiryDate,
 } from "../../utils/util.js";
-import { logSuccess, logError, logOrderSuccess } from "../../utils/logger.js";
+import {  logError, logOrderSuccess } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { sendLoading } from "../../ui/utils/sendLoading.js";
 import {
@@ -73,19 +73,6 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
       lastChain: chainId,
     });
 
-    const isNewChain = count === 3;
-
-    return logSuccess(
-      interaction.client,
-      isNewChain ? "New Chain Created" : "Chain Updated",
-      isNewChain
-        ? `A new account chain (${chainId}) was created with ${count} accounts.`
-        : `${count} account(s) added to chain (${chainId}).`,
-      {
-        "Chain ID": chainId,
-        "Accounts Created": String(count),
-      },
-    );
   } catch (error) {
     errorLog("Account creation failed:", error);
 

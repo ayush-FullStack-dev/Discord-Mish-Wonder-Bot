@@ -8,7 +8,7 @@ import {
   handleInteractionError,
 } from "../../utils/error-handler.js";
 import { deleteOrderTicket } from "../../helpers/deleteOrderTicket.js";
-import { logSuccess, logError } from "../../utils/logger.js";
+import {  logError } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { errorLog } from "../../../logs/printLogs.js";
 import { ADMIN_USERID } from "../../constants/constant.js";
@@ -241,16 +241,6 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
       });
       return;
     }
-
-    await logSuccess(
-      interaction.client,
-      "Order Cancelled",
-      "The checkout was cancelled successfully and the local order record was updated.",
-      {
-        User: discordUserId,
-        "Checkout ID": checkoutId,
-      },
-    );
 
     await Card.findOneAndUpdate(
       { _id: order.card?._id },
