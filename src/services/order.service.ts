@@ -196,6 +196,13 @@ export async function createOrder(
     const responseError = axios.isAxiosError(error)
       ? error.response?.data?.error
       : undefined;
+    const errorMessage = axios.isAxiosError(error)
+      ? (error.response?.data?.message ??
+        error.response?.data?.error ??
+        error.message)
+      : error instanceof Error
+        ? error.message
+        : String(error);
 
     const isCardRejected =
       CARD_REJECTION_CODES.includes(
@@ -212,7 +219,7 @@ export async function createOrder(
     if (isCardRejected) {
       return {
         code: "PAYMENT_ERROR",
-        message: "Your payment method was declined.",
+        message: errorMessage || "Your payment method was declined.",
       };
     }
 
@@ -246,14 +253,6 @@ export async function createOrder(
         message: "Too many requests. Please try again later.",
       };
     }
-
-    const errorMessage = axios.isAxiosError(error)
-      ? (error.response?.data?.message ??
-        error.response?.data?.error ??
-        error.message)
-      : error instanceof Error
-        ? error.message
-        : String(error);
 
     return {
       code,
@@ -309,6 +308,14 @@ export async function editOrder(
         ? error.message
         : "UNKNOWN_ERROR";
 
+    const errorMessage = axios.isAxiosError(error)
+      ? (error.response?.data?.message ??
+        error.response?.data?.error ??
+        error.message)
+      : error instanceof Error
+        ? error.message
+        : String(error);
+
     errorLog(`Failed to edit checkout: code ${code}`);
 
     if (
@@ -319,7 +326,7 @@ export async function editOrder(
       return {
         ok: false,
         code: "PAYMENT_ERROR",
-        message: "Your payment method was declined.",
+        message: errorMessage || "Your payment method was declined.",
       };
     }
 
@@ -429,7 +436,7 @@ export async function confirmOrder(id: string) {
         return {
           ok: false as const,
           code: "PAYMENT_ERROR",
-          message: "Your payment could not be processed.",
+          message: apiMessage || "Your payment could not be processed.",
         };
       }
 
