@@ -1,6 +1,15 @@
-import type { ChatInputCommandInteraction } from "discord.js";
+import type {
+  ChatInputCommandInteraction,
+  ModalSubmitInteraction,
+} from "discord.js";
 import { requireAdmin } from "../middleware.js";
-import { MessageFlags } from "discord.js";
+import {
+  ActionRowBuilder,
+  MessageFlags,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+} from "discord.js";
 import { validateCardReference } from "../utils/validate-card.js";
 import {
   attemptInteractionResponse,
@@ -68,7 +77,7 @@ export async function handleAddSingleCard(
   }
 }
 
-export async function handleAddBulkCard(
+export async function handleImportCards(
   interaction: ChatInputCommandInteraction,
 ) {
   try {
@@ -104,6 +113,111 @@ export async function handleAddBulkCard(
 
     if (lines.length === 0) {
       throw new UserFacingError("The uploaded file is empty.");
+    }
+
+    const cards: ICard[] = [];
+    let skipped = 0;
+
+    for (const line of lines) {
+      try {
+        const record = validateCardReference(line);
+
+        cards.push({
+          encryptedCardNumber: record.cardnumber,
+          encryptedCardCvv: record.cvv,
+          expiryDate: record.expdate,
+          zipcode: record.zipcode,
+          state: record.state,
+          city: record.city,
+          fullname: record.fullname ?? null,
+          address: record.address,
+        });
+      } catch {
+        skipped++;
+      }
+    }
+
+    let addedCount = 0;
+
+    try {
+      const data = await addManyCards(cards);
+
+      skipped += data.rejectedCount;
+      addedCount = data.acceptedCount;
+    } catch (error) {
+      await attemptInteractionResponse(interaction, () =>
+        interaction.editReply({
+          content: "Failed to add cards. Please try again.",
+        }),
+      );
+
+      return;
+    }
+
+    if (cards.length === 0) {
+      await attemptInteractionResponse(interaction, () =>
+        interaction.editReply({
+          content: `No valid records found. Skipped: ${skipped}.`,
+        }),
+      );
+      return;
+    }
+
+    await attemptInteractionResponse(interaction, () =>
+      interaction.editReply({
+        content:
+          addedCount > 0
+            ? `${addedCount} cards have been added successfully.`
+            : "No cards added.",
+      }),
+    );
+    return;
+  } catch (error) {
+    await handleInteractionError(interaction, error);
+  }
+}
+
+export async function handleAddBulkCards(
+  interaction: ChatInputCommandInteraction,
+) {
+  const modal = new ModalBuilder()
+    .setCustomId("cards:bulk-add")
+    .setTitle("Add VCCs");
+
+  const cardReferencesInput = new TextInputBuilder()
+    .setCustomId("card-references")
+    .setLabel("Card References — one per line")
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(true)
+    .setMaxLength(4000);
+
+  modal.addComponents(
+    new ActionRowBuilder<TextInputBuilder>().addComponents(cardReferencesInput),
+  );
+
+  await interaction.showModal(modal);
+}
+
+export async function handleBulkAddCardsSubmit(
+  interaction: ModalSubmitInteraction,
+) {
+  try {
+    if (!(await requireAdmin(interaction))) return;
+
+    await attemptInteractionResponse(interaction, () =>
+      interaction.deferReply({
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+    const content = interaction.fields.getTextInputValue("card-references");
+
+    const lines = content
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (lines.length === 0) {
+      throw new UserFacingError("Please provide valid input.");
     }
 
     const cards: ICard[] = [];

@@ -7,10 +7,12 @@ import {
 } from "../controllers/order/order.controller.js";
 import { postShopPanel } from "../controllers/post-shop.controller.js";
 import {
-  handleAddBulkCard,
+  handleImportCards,
   handleAddSingleCard,
   handleDeleteAllCards,
   handleDeleteCard,
+  handleAddBulkCards,
+  handleBulkAddCardsSubmit,
 } from "../controllers/card.controller.js";
 import {
   attemptInteractionResponse,
@@ -62,8 +64,11 @@ export function registerInteractionHandler(client: Client) {
         if (interaction.commandName === "add-card") {
           await handleAddSingleCard(interaction);
         }
+        if (interaction.commandName === "import-cards") {
+          await handleImportCards(interaction);
+        }
         if (interaction.commandName === "add-bulk-cards") {
-          await handleAddBulkCard(interaction);
+          await handleAddBulkCards(interaction);
         }
         if (interaction.commandName === "delete-card") {
           await handleDeleteCard(interaction);
@@ -97,6 +102,10 @@ export function registerInteractionHandler(client: Client) {
         if (interaction.customId === "wonder:order") {
           await handleOrderModal(interaction);
           return;
+        }
+
+        if (interaction.customId === "card-references") {
+          await handleBulkAddCardsSubmit(interaction);
         }
       }
     } catch (error) {

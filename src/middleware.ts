@@ -1,9 +1,9 @@
-import { MessageFlags, type ChatInputCommandInteraction } from "discord.js";
+import { MessageFlags, type RepliableInteraction } from "discord.js";
 import { ADMIN_USERID } from "./constants/constant.js";
 import { attemptInteractionResponse } from "./utils/error-handler.js";
 
 export async function requireAdmin(
-  interaction: ChatInputCommandInteraction,
+  interaction: RepliableInteraction,
 ): Promise<boolean> {
   if (!ADMIN_USERID.includes(interaction.user.id)) {
     await attemptInteractionResponse(interaction, () =>

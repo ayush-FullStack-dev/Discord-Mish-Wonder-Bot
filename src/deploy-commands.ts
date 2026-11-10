@@ -4,11 +4,16 @@ import { postShopCommand } from "./commands/post-shop.js";
 import { errorLog, info, success } from "../logs/printLogs.js";
 import {
   addBulkCardsCommand,
+  importCardsCommand,
   addCardCommand,
   deleteAllCardsCommand,
   deleteCardCommand,
 } from "./commands/card-mange.js";
-import { closeAllOrdersCommand, closeOrderCommand, earningsCommand } from "./commands/order.js";
+import {
+  closeAllOrdersCommand,
+  closeOrderCommand,
+  earningsCommand,
+} from "./commands/order.js";
 import { getDiscountCommand, setDiscountCommand } from "./commands/discount.js";
 
 export const commands = [
@@ -17,6 +22,7 @@ export const commands = [
     .setDescription("Check the bot's latency and connection status."),
   postShopCommand,
   addCardCommand,
+  importCardsCommand,
   addBulkCardsCommand,
   deleteCardCommand,
   deleteAllCardsCommand,
@@ -24,7 +30,7 @@ export const commands = [
   closeAllOrdersCommand,
   earningsCommand,
   getDiscountCommand,
-  setDiscountCommand
+  setDiscountCommand,
 ].map((command) => command.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(env.discordToken);
