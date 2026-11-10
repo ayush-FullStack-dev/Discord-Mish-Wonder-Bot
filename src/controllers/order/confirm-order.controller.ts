@@ -25,7 +25,7 @@ import {
   dollarsToCents,
   formatExpiryDate,
 } from "../../utils/util.js";
-import {  logError, logOrderSuccess } from "../../utils/logger.js";
+import { logError, logOrderSuccess } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { sendLoading } from "../../ui/utils/sendLoading.js";
 import {
@@ -72,7 +72,6 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
     await UserChain.create({
       lastChain: chainId,
     });
-
   } catch (error) {
     errorLog("Account creation failed:", error);
 
@@ -169,6 +168,10 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       order.discordUserId !== discordUserId &&
       !ADMIN_USERID.includes(discordUserId)
     ) {
+      await Order.findByIdAndUpdate(claimedOrderId, {
+        $set: { confirming: false },
+      });
+
       return sendError(interaction, {
         title: "Unauthorized Access",
         description: "You are not authorized to confirm this order.",
@@ -194,12 +197,20 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         ephemeral: false,
       });
 
+      await Order.findByIdAndUpdate(claimedOrderId, {
+        $set: { confirming: false },
+      });
+
       return;
     }
 
     let checkoutId = order.checkoutId;
 
     if (typeof checkoutId !== "string" || !checkoutId.trim()) {
+      await Order.findByIdAndUpdate(claimedOrderId, {
+        $set: { confirming: false },
+      });
+
       await sendError(interaction, {
         title: "Checkout Unavailable",
         description: "The checkout ID for this order is unavailable.",
@@ -212,6 +223,10 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     const balance = await getBalance(discordUserId);
 
     if (balance === null) {
+      await Order.findByIdAndUpdate(claimedOrderId, {
+        $set: { confirming: false },
+      });
+
       await sendError(interaction, {
         title: "Wallet Not Found",
         description: "You don't have a wallet to confirm this order.",
@@ -230,6 +245,10 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       !Number.isFinite(order.total) ||
       order.total < 0
     ) {
+      await Order.findByIdAndUpdate(claimedOrderId, {
+        $set: { confirming: false },
+      });
+
       await sendError(interaction, {
         title: "Checkout Pricing Unavailable",
         description:
@@ -245,6 +264,10 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     if (order.total > dollarBalance) {
       const additionalFunds = (order.total - dollarBalance).toFixed(2);
+
+      await Order.findByIdAndUpdate(claimedOrderId, {
+        $set: { confirming: false },
+      });
 
       await sendError(interaction, {
         title: "Insufficient Funds",
@@ -320,6 +343,12 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       paymentAttempts < maxPaymentAttempts
     ) {
       paymentAttempts++;
+
+      await sendLoading(interaction, {
+        title: "Payment Confirmation Failed",
+        description: `Payment confirmation was declined. Checking transaction status.\n\nAttempt: ${paymentAttempts}/${maxPaymentAttempts}`,
+      });
+
       const confirmFailed = result.code === "PAYMENT_ERROR";
       await blockDeclinedCard(activeCardId);
 
@@ -499,6 +528,11 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         restoreLoading: retryLoadingOptions,
       });
 
+      await sendLoading(interaction, {
+        title: "Checking Checkout Status",
+        description: `Checkout recovery check completed. Verifying the latest transaction status.\n\nAttempt: ${paymentAttempts}/${maxPaymentAttempts}`,
+      });
+
       if (!checkout.ok) {
         errorLog("[CHECKOUT_RECOVERY_FAILED]", checkout.message);
         const fallback = await createNewCheckout();
@@ -520,6 +554,37 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       }
     }
 
+    if (
+      result.code === "PAYMENT_ERROR" &&
+      paymentAttempts >= maxPaymentAttempts
+    ) {
+      await logError(
+        interaction.client,
+        "Payment Retry Limit Reached",
+        "Maximum payment attempts reached. Payment could not be confirmed.",
+        {
+          User: discordUserId,
+          "Checkout ID": checkoutId,
+          "Failed Attempts": String(paymentAttempts),
+          "Maximum Attempts": String(maxPaymentAttempts),
+        },
+      );
+
+      await sendError(interaction, {
+        title: "Payment Confirmation Failed",
+        description: `Payment could not be confirmed after ${paymentAttempts} attempts.`,
+        footer: "Please contact support for assistance.",
+        ephemeral: false,
+      });
+
+      await updateOrderChannel(interaction, `⚠️-${channelName}`);
+
+      await Order.findByIdAndUpdate(claimedOrderId, {
+        $set: { confirming: false },
+      });
+      return;
+    }
+
     if (!result.ok) {
       await logError(
         interaction.client,
@@ -530,6 +595,10 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           "Checkout ID": checkoutId,
         },
       );
+
+      await Order.findByIdAndUpdate(claimedOrderId, {
+        $set: { confirming: false },
+      });
 
       await sendError(interaction, {
         title: "Order Confirmation Failed",

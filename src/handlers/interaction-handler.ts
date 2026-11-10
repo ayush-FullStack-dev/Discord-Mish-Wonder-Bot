@@ -104,7 +104,7 @@ export function registerInteractionHandler(client: Client) {
           return;
         }
 
-        if (interaction.customId === "card-references") {
+        if (interaction.customId === "cards:bulk-add") {
           await handleBulkAddCardsSubmit(interaction);
         }
       }
