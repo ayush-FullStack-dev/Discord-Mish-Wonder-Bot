@@ -8,7 +8,7 @@ import {
   handleInteractionError,
 } from "../../utils/error-handler.js";
 import { deleteOrderTicket } from "../../helpers/deleteOrderTicket.js";
-import {  logError } from "../../utils/logger.js";
+import { logError } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { errorLog } from "../../../logs/printLogs.js";
 import { ADMIN_USERID } from "../../constants/constant.js";
@@ -60,7 +60,6 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
     }
 
     const order = await Order.findById(buttonId)
-      .where("confirming", false)
       .populate("card", "_id last4Digits expiryDate status");
 
     if (!order) {
@@ -83,6 +82,18 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
         ].join("\n"),
         footer: "The order may have expired or already been removed.",
         ephemeral: false,
+      });
+
+      return;
+    }
+
+    if (order.confirming !== false) {
+      await sendError(interaction, {
+        title: "Order Confirmation In Progress",
+        description:
+          "This order is still being processed. Please wait for the current confirmation process to finish.",
+        footer: "Please try again later.",
+        ephemeral: true,
       });
 
       return;

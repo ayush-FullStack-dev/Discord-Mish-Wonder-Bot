@@ -135,7 +135,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     let order = await Order.findOneAndUpdate(
       {
         _id: orderId,
-        confirming: { $ne: true },
       },
       {
         $set: { confirming: true },
@@ -162,6 +161,18 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       return;
     }
 
+    if (order.confirming !== false) {
+      await sendError(interaction, {
+        title: "Order Confirmation In Progress",
+        description:
+          "This order is still being processed. Please wait for the current confirmation process to finish.",
+        footer: "Please try again later.",
+        ephemeral: true,
+      });
+
+      return;
+    }
+    
     claimedOrderId = order._id;
 
     if (
