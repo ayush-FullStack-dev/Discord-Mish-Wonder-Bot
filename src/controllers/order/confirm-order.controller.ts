@@ -165,7 +165,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       await sendError(interaction, {
         title: "Order Confirmation In Progress",
         description:
-          "This order is still being processed. Please wait for the current confirmation process to finish.",
+          "This order is still being processed. \nPlease wait for the current confirmation process to finish.",
         footer: "Please try again later.",
         ephemeral: true,
       });
