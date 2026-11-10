@@ -140,7 +140,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         $set: { confirming: true },
       },
       {
-        returnDocument: "after",
+        returnDocument: "before",
         upsert: false,
       },
     )
@@ -171,9 +171,10 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       });
 
       return;
+    } else {
+      order.confirming = true;
+      claimedOrderId = order._id;
     }
-    
-    claimedOrderId = order._id;
 
     if (
       order.discordUserId !== discordUserId &&
