@@ -221,13 +221,22 @@ export async function logError(
   details?: Record<string, string>,
 ): Promise<void> {
   const message = error instanceof Error ? error.message : String(error);
+  const description = message.slice(0, 4000) || "An unknown error occurred.";
+  const isPaymentError =
+    /\b(payment|card|cards|balance|transaction|checkout|billing|tokeniz\w*)\b/i.test(
+      `${title} ${description}`,
+    );
+
+  const animatedEmojy = isPaymentError
+    ? "<a:Nocreditcard1:1570213456911663214>"
+    : "<a:WarningAlertIcon1:1569290870933430323>";
 
   await sendLog(
     client,
     env.errorChannelId,
     {
-      title: `<:alert:1563650830505349241> ${title}`,
-      description: message.slice(0, 4000) || "An unknown error occurred.",
+      title: `${animatedEmojy} ${title}`,
+      description,
       color: 0xef4444,
       ...(details ? { details } : {}),
     },
