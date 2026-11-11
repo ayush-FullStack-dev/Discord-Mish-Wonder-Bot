@@ -441,7 +441,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
             expiryDate: newCard.expiryDate,
             zipcode: newCard.zipcode,
           },
-          updatedOrder.chain,
         );
 
         const retryResult = await retryOrderWithReplacementCards({
@@ -450,7 +449,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           card: newCard,
           cartCode,
           attemptedCardIds,
-          chain: updatedOrder.chain,
         });
 
         if (!retryResult) {

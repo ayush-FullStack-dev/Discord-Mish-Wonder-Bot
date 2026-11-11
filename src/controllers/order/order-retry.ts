@@ -6,6 +6,7 @@ import { sendError } from "../../ui/utils/sendError.js";
 import { logError } from "../../utils/logger.js";
 import { maxPaymentAttempts } from "../../constants/constant.js";
 import { isPaymentError } from "./confirm-order-recovery.js";
+import { getBestChain } from "../../utils/chain.js";
 
 type CreateOrderResult = Awaited<ReturnType<typeof createOrder>>;
 
@@ -22,7 +23,6 @@ interface RetryOrderOptions {
   card?: InstanceType<typeof Card> | null;
   cartCode: string;
   attemptedCardIds?: Set<string>;
-  chain: string;
   messages?: {
     retryLimit?: RetryOrderMessage;
     noCardsAvailable?: RetryOrderMessage;
@@ -62,7 +62,6 @@ export async function retryOrderWithReplacementCards({
   cartCode,
   attemptedCardIds = new Set<string>(),
   messages,
-  chain,
 }: RetryOrderOptions): Promise<RetryOrderResult | null> {
   let paymentAttempts = 0;
 
@@ -152,7 +151,6 @@ export async function retryOrderWithReplacementCards({
         expiryDate: newCard.expiryDate,
         zipcode: newCard.zipcode,
       },
-      chain,
     );
   }
 

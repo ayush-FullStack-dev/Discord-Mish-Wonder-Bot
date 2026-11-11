@@ -166,16 +166,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
 
   try {
     const cartCode = interaction.fields.getTextInputValue("cart_code").trim();
-    const chain = await getBestChain("most_unused_credit");
-
-    if (!chain) {
-      return sendError(interaction, {
-        title: "No Available Chain",
-        description:
-          "No eligible chain is currently available. Please try again later.",
-        footer: "Please try again in a few moments.",
-      });
-    }
 
     const balance = await getBalance(interaction.user.id);
     if (balance === null || balance < 100) {
@@ -255,8 +245,15 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         expiryDate: card.expiryDate,
         zipcode: card.zipcode,
       },
-      chain,
     );
+
+    if (result.code === "NO_CHAIN") {
+      return sendError(interaction, {
+        title: "No Available Chain",
+        description: result.message,
+        footer: "Please try again in a few moments.",
+      });
+    }
 
     if (result.code === "PAYMENT_ERROR") {
       await sendLoading(interaction, {
@@ -286,7 +283,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       result,
       card,
       cartCode,
-      chain
     });
 
     if (!retryResult) return;
@@ -296,6 +292,14 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
 
     if (!card) {
       throw new Error("No payment card available after checkout retry.");
+    }
+
+    if (result.code === "NO_CHAIN") {
+      return sendError(interaction, {
+        title: "No Available Chain",
+        description: result.message,
+        footer: "Please try again in a few moments.",
+      });
     }
 
     if (result.code !== null && result.code !== undefined) {
@@ -442,7 +446,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       card: card._id,
       cost: data.price.total,
       cartCode,
-      chain,
+      chain: result.chain,
       repriceCount: 0,
       repricedAt: null,
     };

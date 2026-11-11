@@ -1,6 +1,7 @@
 import axios from "axios";
 import { env } from "../config/env.js";
 import { errorLog } from "../../logs/printLogs.js";
+import { getBestChain } from "../utils/chain.js";
 
 export const CARD_REJECTION_CODES = [
   "BAD_CARD",
@@ -117,6 +118,7 @@ export type CreateOrderResult =
       code: null;
       message: string;
       data: CheckoutData;
+      chain: string;
     }
   | {
       code: string;
@@ -153,9 +155,18 @@ function getErrorMessage(error: unknown): string {
 export async function createOrder(
   input: CreateOrderInput,
   card: OrderCard,
-  chain: string
 ): Promise<CreateOrderResult> {
   try {
+    const chain = await getBestChain("most_unused_credit");
+
+    if (!chain) {
+      return {
+        code: "NO_CHAIN",
+        message:
+          "All available chains are currently in use.\n Please try again later.",
+      };
+    }
+
     const response = await axios.post<CheckoutData>(
       `${env.yonderApiBaseUrl}/checkouts`,
       {
@@ -181,6 +192,7 @@ export async function createOrder(
       code: null,
       message: "Your checkout is being prepared.",
       data,
+      chain,
     };
   } catch (error: unknown) {
     const code = axios.isAxiosError(error)
