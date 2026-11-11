@@ -236,25 +236,49 @@ export async function updateCheckoutForRetry({
         },
       };
     } catch (editError) {
+      const errorMessage =
+        editError instanceof Error ? editError.message : String(editError);
+
       errorLog("[EDIT_ORDER_FAILED]", editError);
 
-      const repriced = await repriceCheckout(
-        interaction,
-        checkoutId,
-        orderId,
-        restoreLoading,
-        confirmationToken,
-      );
+      const isCheckoutError =
+        /NO_SUCH_CHECKOUT|no checkout with that id|checkout.*(expired|not found|missing)/i.test(
+          errorMessage,
+        );
 
-      return {
-        ok: true,
-        message: null,
-        data: {
-          checkoutId: repriced.checkoutId,
-          order: repriced.order,
-          confirmFailed,
-        },
-      };
+      if (isCheckoutError) {
+        errorLog("[CHECKOUT_MISSING]", {
+          checkoutId,
+          orderId,
+          message: errorMessage,
+        });
+
+        return {
+          ok: false,
+          code: "REPRICE_FAIL",
+          message:
+            errorMessage ?? "An unexpected checkout recovery error occurred.",
+          data: null,
+        };
+      } else {
+        const repriced = await repriceCheckout(
+          interaction,
+          checkoutId,
+          orderId,
+          restoreLoading,
+          confirmationToken,
+        );
+
+        return {
+          ok: true,
+          message: null,
+          data: {
+            checkoutId: repriced.checkoutId,
+            order: repriced.order,
+            confirmFailed,
+          },
+        };
+      }
     }
   } catch (error) {
     errorLog("[CHECKOUT_RECOVERY_FAILED]", error);
