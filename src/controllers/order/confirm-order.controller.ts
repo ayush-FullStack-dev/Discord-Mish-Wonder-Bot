@@ -49,19 +49,28 @@ import {
 import { retryOrderWithReplacementCards } from "./order-retry.js";
 import { ORDER_ERRORS } from "../../constants/errors.js";
 
-async function handleCreateAccount(interaction: ButtonInteraction) {
+async function handleCreateAccount(
+  interaction: ButtonInteraction,
+  chain: string | undefined | null,
+) {
   try {
-    const chainId = await getBestChain("most_unused_credit");
+    const selectedChain = chain ?? (await getBestChain("most_unused_credit"));
+
+    if (!selectedChain) {
+      return;
+    }
 
     const chainAccounts = await UserChain.countDocuments({
-      lastChain: chainId,
+      lastChain: selectedChain,
     });
 
     const count =
-      chainId === "1" ? 1 : Math.max(1, minChainAccountCount - chainAccounts);
+      selectedChain === "1"
+        ? 1
+        : Math.max(1, minChainAccountCount - chainAccounts);
 
     const result = await createAccountsOnChain({
-      chain: chainId,
+      chain: selectedChain,
       count,
     });
 
@@ -70,7 +79,7 @@ async function handleCreateAccount(interaction: ButtonInteraction) {
     }
 
     await UserChain.create({
-      lastChain: chainId,
+      lastChain: selectedChain,
     });
   } catch (error) {
     errorLog("Account creation failed:", error);
@@ -432,6 +441,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
             expiryDate: newCard.expiryDate,
             zipcode: newCard.zipcode,
           },
+          updatedOrder.chain,
         );
 
         const retryResult = await retryOrderWithReplacementCards({
@@ -440,6 +450,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           card: newCard,
           cartCode,
           attemptedCardIds,
+          chain: updatedOrder.chain,
         });
 
         if (!retryResult) {
@@ -791,7 +802,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     } catch {}
 
     setTimeout(async () => {
-      handleCreateAccount(interaction);
+      handleCreateAccount(interaction, order?.chain);
     }, 5_000);
   } catch (error) {
     await logError(interaction.client, "Order Confirmation Error", error, {

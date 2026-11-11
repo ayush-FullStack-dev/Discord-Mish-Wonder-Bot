@@ -34,7 +34,10 @@ import { requireAdmin } from "../../middleware.js";
 import { logError, sendErrorAndLog } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { decrypt } from "../../utils/encryption.js";
-import { maxPaymentAttempts } from "../../constants/constant.js";
+import {
+  EXCLUDED_CHAINS,
+  maxPaymentAttempts,
+} from "../../constants/constant.js";
 import { getDiscountPercentage } from "../../services/discount.service.js";
 import { sendOrderExpired } from "../../ui/order/sendOrderExpired.js";
 import { ORDER_ERRORS } from "../../constants/errors.js";
@@ -47,6 +50,7 @@ import {
   updateTicketChannel,
 } from "../../utils/discord.js";
 import { retryOrderWithReplacementCards } from "./order-retry.js";
+import { getBestChain } from "../../utils/chain.js";
 
 type IOrder = {
   name: string;
@@ -61,6 +65,7 @@ type IOrder = {
   cost: number;
   cartCode: string;
   repriceCount: number;
+  chain?: string;
   repricedAt: Date | null;
 };
 
@@ -161,7 +166,17 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
 
   try {
     const cartCode = interaction.fields.getTextInputValue("cart_code").trim();
-    let paymentAttempts = 0;
+    const chain = await getBestChain("most_unused_credit");
+
+    if (!chain) {
+      return sendError(interaction, {
+        title: "No Available Chain",
+        description:
+          "No eligible chain is currently available. Please try again later.",
+        footer: "Please try again in a few moments.",
+      });
+    }
+
     const balance = await getBalance(interaction.user.id);
     if (balance === null || balance < 100) {
       return sendError(interaction, {
@@ -229,6 +244,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
     }
 
     const appliedDiscountPercentage = await getDiscountPercentage();
+
     let result = await createOrder(
       {
         cartCode,
@@ -239,6 +255,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         expiryDate: card.expiryDate,
         zipcode: card.zipcode,
       },
+      chain,
     );
 
     if (result.code === "PAYMENT_ERROR") {
@@ -269,6 +286,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       result,
       card,
       cartCode,
+      chain
     });
 
     if (!retryResult) return;
@@ -424,6 +442,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       card: card._id,
       cost: data.price.total,
       cartCode,
+      chain,
       repriceCount: 0,
       repricedAt: null,
     };

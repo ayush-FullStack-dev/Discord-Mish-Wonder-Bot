@@ -3,7 +3,10 @@ import {
   createAccountsOnChain,
   getChains,
 } from "../services/account.service.js";
-import { excludeChains, minChainAccountCount } from "../constants/constant.js";
+import {
+  EXCLUDED_CHAINS,
+  minChainAccountCount,
+} from "../constants/constant.js";
 import { success, errorLog } from "../../logs/printLogs.js";
 
 type Ichain = {
@@ -35,7 +38,8 @@ export function accountProvisioning() {
           (chainInfo: Ichain) =>
             !chainInfo.ready ||
             chainInfo.accounts < minChainAccountCount ||
-            chainInfo.unused < minChainAccountCount,
+            chainInfo.unused < minChainAccountCount ||
+            chainInfo.unused < chainInfo.accounts,
         )
         .map((chainInfo: Ichain) => ({
           id: chainInfo.chain,
@@ -50,12 +54,13 @@ export function accountProvisioning() {
       let totalAccounts = 0;
 
       for (const chainInfo of incompleteChains) {
-        if (excludeChains.includes(chainInfo.id)) continue;
+        if (EXCLUDED_CHAINS.includes(chainInfo.id)) continue;
 
         const missingAccounts = Math.max(
           0,
           minChainAccountCount - chainInfo.accounts,
           minChainAccountCount - chainInfo.unused,
+          chainInfo.accounts - chainInfo.unused,
         );
 
         if (!missingAccounts) continue;

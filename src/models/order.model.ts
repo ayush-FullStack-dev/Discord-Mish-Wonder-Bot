@@ -84,6 +84,11 @@ const orderSchema = new Schema(
       default: null,
     },
 
+    chain: {
+      type: String,
+      required: true,
+    },
+
     trackingUrl: {
       type: String,
       default: null,

@@ -2,7 +2,8 @@ import { getChains, getAccounts } from "../services/account.service.js";
 
 import { UserChain } from "../models/userChain.model.js";
 import type { Chain } from "../types/index.js";
-import { excludeChains } from "../constants/constant.js";
+import { EXCLUDED_CHAINS } from "../constants/constant.js";
+import { Order } from "../models/order.model.js";
 
 type ChainSelectionMode =
   | "first_credit"
@@ -24,11 +25,21 @@ interface ChainAccountStats {
   availableCredit: number;
 }
 
-async function getDatabaseFallback(): Promise<string> {
+async function getDatabaseFallback(): Promise<string | null> {
   try {
+    const activeChains = await Order.distinct("chain", {
+      confirming: true,
+      chain: { $nin: [null, ...EXCLUDED_CHAINS] },
+    });
+
+    const excludedChains = [
+      ...EXCLUDED_CHAINS.map(String),
+      ...activeChains.map(String),
+    ];
+
     const oldChain = await UserChain.findOne({
       lastChain: {
-        $nin: excludeChains,
+        $nin: excludedChains,
         $exists: true,
         $ne: null,
       },
@@ -37,9 +48,9 @@ async function getDatabaseFallback(): Promise<string> {
       .select("lastChain -_id")
       .lean();
 
-    return oldChain?.lastChain ? String(oldChain.lastChain) : "2";
+    return oldChain?.lastChain ? String(oldChain.lastChain) : null;
   } catch {
-    return "2";
+    return null;
   }
 }
 
@@ -74,7 +85,7 @@ function getAccountStats(accounts: Account[]): Map<string, ChainAccountStats> {
 
 export async function getBestChain(
   mode: ChainSelectionMode = "most_unused_credit",
-): Promise<string> {
+): Promise<string | null> {
   let chainData;
   let accountData;
 
@@ -96,12 +107,23 @@ export async function getBestChain(
   const allChains: Chain[] = chainData.chains;
   const accounts: Account[] = accountData.accounts;
 
+  const activeChains = await Order.distinct("chain", {
+    confirming: true,
+    chain: { $nin: [null, ...EXCLUDED_CHAINS] },
+  });
+
+  const excluded = new Set([
+    ...EXCLUDED_CHAINS.map(String),
+    ...activeChains.map(String),
+  ]);
+
   const chains = allChains.filter(
     (chain) =>
       chain.locked === false &&
       chain.ready === true &&
-      !excludeChains.includes(String(chain.chain)),
+      !excluded.has(String(chain.chain)),
   );
+
   const accountStats = getAccountStats(accounts);
 
   const getStats = (chain: Chain): ChainAccountStats =>
@@ -123,54 +145,45 @@ export async function getBestChain(
     ).filter((item) => item !== mode),
   ];
 
-  try {
-    for (const strategy of priority) {
-      let selectedChain: Chain | undefined;
+  for (const strategy of priority) {
+    let selectedChain: Chain | undefined;
 
-      switch (strategy) {
-        case "most_unused_credit":
-          selectedChain = chains
-            .filter((chain) => getStats(chain).availableCredit > 0)
-            .sort(
-              (a, b) =>
-                getStats(b).availableCredit - getStats(a).availableCredit,
-            )[0];
-          break;
+    switch (strategy) {
+      case "most_unused_credit":
+        selectedChain = chains
+          .filter((chain) => getStats(chain).availableCredit > 0)
+          .sort(
+            (a, b) => getStats(b).availableCredit - getStats(a).availableCredit,
+          )[0];
+        break;
 
-        case "most_credit":
-          selectedChain = chains
-            .filter((chain) => getStats(chain).totalCredit > 0)
-            .sort(
-              (a, b) => getStats(b).totalCredit - getStats(a).totalCredit,
-            )[0];
-          break;
+      case "most_credit":
+        selectedChain = chains
+          .filter((chain) => getStats(chain).totalCredit > 0)
+          .sort((a, b) => getStats(b).totalCredit - getStats(a).totalCredit)[0];
+        break;
 
-        case "has_credit":
-          selectedChain = chains.find(
-            (chain) => getStats(chain).availableCredit > 0,
-          );
-          break;
+      case "has_credit":
+        selectedChain = chains.find(
+          (chain) => getStats(chain).availableCredit > 0,
+        );
+        break;
 
-        case "first_credit":
-          selectedChain = chains.find(
-            (chain) => getStats(chain).totalCredit > 0,
-          );
-          break;
+      case "first_credit":
+        selectedChain = chains.find((chain) => getStats(chain).totalCredit > 0);
+        break;
 
-        case "most_unused":
-          selectedChain = chains
-            .filter((chain) => chain.unused > 0)
-            .sort((a, b) => b.unused - a.unused)[0];
-          break;
-      }
-
-      if (selectedChain?.chain) {
-        return String(selectedChain.chain);
-      }
+      case "most_unused":
+        selectedChain = chains
+          .filter((chain) => chain.unused > 0)
+          .sort((a, b) => b.unused - a.unused)[0];
+        break;
     }
-  } catch {
-    return getDatabaseFallback();
+
+    if (selectedChain?.chain) {
+      return String(selectedChain.chain);
+    }
   }
 
-  return getDatabaseFallback();
+  return null;
 }
