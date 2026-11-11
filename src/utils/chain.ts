@@ -107,14 +107,8 @@ export async function getBestChain(
   const allChains: Chain[] = chainData.chains;
   const accounts: Account[] = accountData.accounts;
 
-  const activeChains = await Order.distinct("chain", {
-    confirming: true,
-    chain: { $nin: [null, ...EXCLUDED_CHAINS] },
-  });
-
   const excluded = new Set([
     ...EXCLUDED_CHAINS.map(String),
-    ...activeChains.map(String),
   ]);
 
   const chains = allChains.filter(

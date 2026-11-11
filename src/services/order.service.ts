@@ -118,7 +118,6 @@ export type CreateOrderResult =
       code: null;
       message: string;
       data: CheckoutData;
-      chain: string;
     }
   | {
       code: string;
@@ -192,7 +191,6 @@ export async function createOrder(
       code: null,
       message: "Your checkout is being prepared.",
       data,
-      chain,
     };
   } catch (error: unknown) {
     const code = axios.isAxiosError(error)

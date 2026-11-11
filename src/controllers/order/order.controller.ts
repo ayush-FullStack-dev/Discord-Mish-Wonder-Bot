@@ -446,7 +446,6 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
       card: card._id,
       cost: data.price.total,
       cartCode,
-      chain: result.chain,
       repriceCount: 0,
       repricedAt: null,
     };
