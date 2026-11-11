@@ -18,6 +18,7 @@ interface UpdateCheckoutOptions {
   interaction: ButtonInteraction;
   checkoutId: string;
   orderId: Types.ObjectId;
+  confirmationToken: string;
   card: OrderCard;
   paymentAttempts: number;
   repriceInterval: number;
@@ -110,9 +111,10 @@ export function getReplacementCardDetails(card: {
 export async function updateOrderPaymentCard(
   orderId: Types.ObjectId,
   cardId: Types.ObjectId,
+  confirmationToken: string,
 ) {
-  return Order.findByIdAndUpdate(
-    orderId,
+  return Order.findOneAndUpdate(
+    { _id: orderId, status: "pending", confirming: true, confirmationToken },
     { card: cardId },
     { returnDocument: "after" },
   ).exec();
@@ -129,11 +131,13 @@ export async function repriceCheckout(
   checkoutId: string,
   orderId: Types.ObjectId,
   restoreLoading: RecoveryLoadingOptions,
+  confirmationToken: string,
 ) {
   return repriceAndUpdateOrder({
     interaction,
     checkoutId,
     orderId,
+    confirmationToken,
     restoreLoading,
   });
 }
@@ -142,6 +146,7 @@ export async function updateCheckoutForRetry({
   interaction,
   checkoutId,
   orderId,
+  confirmationToken,
   card,
   paymentAttempts,
   repriceInterval,
@@ -159,6 +164,7 @@ export async function updateCheckoutForRetry({
           checkoutId,
           orderId,
           restoreLoading,
+          confirmationToken,
         );
 
         return {
@@ -237,6 +243,7 @@ export async function updateCheckoutForRetry({
         checkoutId,
         orderId,
         restoreLoading,
+        confirmationToken,
       );
 
       return {

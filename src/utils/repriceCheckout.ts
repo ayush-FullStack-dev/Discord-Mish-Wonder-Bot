@@ -18,6 +18,7 @@ interface RepriceCheckoutOptions {
 
 interface RepriceAndUpdateOrderOptions extends RepriceCheckoutOptions {
   orderId: typeof Order.prototype._id;
+  confirmationToken: string;
 }
 
 export class RepricePersistenceError extends Error {
@@ -109,6 +110,7 @@ export async function repriceAndUpdateOrder({
   interaction,
   checkoutId,
   orderId,
+  confirmationToken,
   restoreLoading,
 }: RepriceAndUpdateOrderOptions) {
   const repriced = await executeRepriceCheckout({
@@ -119,8 +121,8 @@ export async function repriceAndUpdateOrder({
 
   let updatedOrder;
   try {
-    updatedOrder = await Order.findByIdAndUpdate(
-      orderId,
+    updatedOrder = await Order.findOneAndUpdate(
+      { _id: orderId, status: "pending", confirming: true, confirmationToken },
       {
         $set: repriced.order,
         $inc: { repriceCount: 1 },

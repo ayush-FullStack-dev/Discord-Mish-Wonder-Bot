@@ -53,13 +53,14 @@ const orderSchema = new Schema(
     expiresAt: {
       type: Date,
       default: null,
-      index: { expires: 0 },
     },
 
     confirming: {
       type: Boolean,
       default: false,
     },
+
+    confirmationToken: { type: String, default: null },
 
     card: {
       type: Schema.Types.ObjectId,
@@ -100,5 +101,6 @@ const orderSchema = new Schema(
 );
 
 orderSchema.index({ createdAt: -1 });
+orderSchema.index({ status: 1, confirming: 1, expiresAt: 1 });
 
 export const Order = model("Order", orderSchema);

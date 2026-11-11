@@ -220,8 +220,9 @@ mark successful confirmations, or mark customer cancellations; the schema's
   only if the balance is still sufficient.
 - If that deduction fails after the provider has confirmed, the order is still
   recorded as confirmed and an alert is sent to the configured error channel.
-  The current confirmation controller does not use the separate
-  `deductBalanceOnce` transaction helper or write a wallet-deduction record.
+  Confirmation now persists a durable provider receipt and uses `deductBalanceOnce`
+  with a stable local-order key. A scheduled worker retries interrupted settlement.
+  Deployment and manual recovery instructions are in `docs/order-confirmation-recovery.md`.
 
 ### Payment-card pool
 

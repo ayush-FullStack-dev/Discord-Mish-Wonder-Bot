@@ -11,6 +11,7 @@ import {
 import { startExpireOrdersJob } from "./jobs/expireOrders.job.js";
 import { startReconcileLockedCardsJob } from "./jobs/reconcileLockedCards.job.js";
 import { accountProvisioning } from "./jobs/accountProvisioning.cron.js";
+import { startReconcileOrdersJob } from "./jobs/reconcileOrders.job.js";
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
@@ -43,6 +44,7 @@ async function main() {
   success("Database connection established.");
 
   startExpireOrdersJob();
+  startReconcileOrdersJob();
   startReconcileLockedCardsJob();
   accountProvisioning();
   await client.login(env.discordToken);

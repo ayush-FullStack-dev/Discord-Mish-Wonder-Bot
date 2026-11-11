@@ -13,8 +13,12 @@ import { Card } from "../../models/card.model.js";
 import { errorLog } from "../../../logs/printLogs.js";
 import { ADMIN_USERID } from "../../constants/constant.js";
 import mongoose from "mongoose";
+import { claimFilter, ownedFilter, newConfirmationToken, releaseConfirmation } from "../../services/order-confirmation.service.js";
 
 export async function handleCancelOrder(interaction: ButtonInteraction) {
+  const token = newConfirmationToken();
+  let claimedId: mongoose.Types.ObjectId | null = null;
+  let cancellationUncertain = false;
   const displayName =
     interaction.member instanceof GuildMember
       ? interaction.member.displayName
@@ -179,7 +183,19 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
 
     let result;
 
+    const claimed = await Order.findOneAndUpdate(
+      { ...claimFilter(String(order._id), discordUserId, ADMIN_USERID.includes(discordUserId)), checkoutId },
+      { $set: { confirming: true, confirmationToken: token } },
+      { returnDocument: "after" },
+    );
+    if (!claimed) {
+      await sendError(interaction, { title: "Order Busy", description: "The order changed or is being processed. Please contact support if needed." });
+      return;
+    }
+    claimedId = claimed._id;
+
     try {
+      cancellationUncertain = true;
       result = await cancelOrder(checkoutId);
     } catch (error) {
       await logError(interaction.client, "Order Cancellation Failed", error, {
@@ -218,12 +234,13 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
 
     const updatedOrder = await Order.findOneAndUpdate(
       {
-        _id: order._id,
-        status: "pending",
+        ...ownedFilter(order._id, token),
       },
       {
         $set: {
           status: "cancelled",
+          confirming: false,
+          confirmationToken: null,
           expiresAt: null,
         },
       },
@@ -252,6 +269,8 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
       });
       return;
     }
+
+    cancellationUncertain = false;
 
     await Card.findOneAndUpdate(
       { _id: order.card?._id },
@@ -285,5 +304,9 @@ export async function handleCancelOrder(interaction: ButtonInteraction) {
       error,
       "Failed to process order cancellation",
     );
+  } finally {
+    if (claimedId && !cancellationUncertain) {
+      await releaseConfirmation(claimedId, token).catch((error) => errorLog("Cancellation lock release failed", error));
+    }
   }
 }
