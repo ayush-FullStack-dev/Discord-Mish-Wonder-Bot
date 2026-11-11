@@ -105,6 +105,8 @@ export async function createAccountsOnChain({
 
         await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
         accountStatus = await getJobStatus(account.job);
+
+        console.log(accountStatus)
       }
 
       if (!accountStatus.ok) {

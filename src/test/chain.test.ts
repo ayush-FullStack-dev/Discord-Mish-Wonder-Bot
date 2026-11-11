@@ -1,12 +1,16 @@
 import { connectDatabase } from "../config/database.js";
-import { getChains } from "../services/account.service.js";
+import {
+  createAccountsOnChain,
+  getChains,
+} from "../services/account.service.js";
 import { getBestChain } from "../utils/chain.js";
 
 connectDatabase()
-.then(() => console.log("Connected to database"))
-.catch((err) => console.error("Database connection error:", err));
+  .then(() => console.log("Connected to database"))
+  .catch((err) => console.error("Database connection error:", err));
 
 const chainId = await getBestChain("most_unused_credit");
 const chains = await getChains();
 
-console.log(chains,chainId)
+createAccountsOnChain({ chain: "11", count: 2 });
+console.log(chains, chainId);
