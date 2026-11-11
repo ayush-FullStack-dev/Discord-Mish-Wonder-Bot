@@ -19,11 +19,15 @@ export async function sendError(
   interaction: RepliableInteraction,
   options: ErrorOptions,
 ) {
+  const isPaymentError =
+    /payment/i.test(options.title ?? "") ||
+    /payment/i.test(options.description ?? "");
+
   const container = new ContainerBuilder()
     .setAccentColor(0xed4245)
     .addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `## <:alert:1563650830505349241> ${options.title ?? "Something Went Wrong"}`,
+        `## ${isPaymentError ? "<a:Nocreditcard1:1570213086823186472>" : "<a:WarningAlertIcon1:1569290870933430323>"} ${options.title ?? "Something Went Wrong"}`,
       ),
     )
     .addSeparatorComponents(
