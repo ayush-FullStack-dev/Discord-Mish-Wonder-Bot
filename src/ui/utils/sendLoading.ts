@@ -19,6 +19,14 @@ export async function sendLoading(
   interaction: RepliableInteraction,
   options: LoadingOptions,
 ) {
+  const isPaymentError =
+    /payment/i.test(options.title ?? "") ||
+    /payment/i.test(options.description ?? "");
+
+  const animatedEmojy = isPaymentError
+    ? "<a:Nocreditcard1:1570213456911663214>"
+    : "<a:loading:1563867571793698867>";
+
   const container = new ContainerBuilder()
     .setAccentColor(0xfee75c)
     .addTextDisplayComponents(

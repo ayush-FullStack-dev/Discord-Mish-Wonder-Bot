@@ -4,9 +4,9 @@ import { decrypt } from "../../utils/encryption.js";
 import { createOrder } from "../../services/order.service.js";
 import { sendError } from "../../ui/utils/sendError.js";
 import { logError } from "../../utils/logger.js";
-import { maxPaymentAttempts } from "../../constants/constant.js";
 import { isPaymentError } from "./confirm-order-recovery.js";
 import { getBestChain } from "../../utils/chain.js";
+import { env } from "../../config/env.js";
 
 type CreateOrderResult = Awaited<ReturnType<typeof createOrder>>;
 
@@ -69,7 +69,7 @@ export async function retryOrderWithReplacementCards({
     attemptedCardIds.add(card._id.toString());
   }
 
-  while (isPaymentError(result) && paymentAttempts < maxPaymentAttempts) {
+  while (isPaymentError(result) && paymentAttempts < env.maxRetryPaymentAttempts) {
     paymentAttempts++;
 
     if (card?._id) {
@@ -85,7 +85,7 @@ export async function retryOrderWithReplacementCards({
       });
     }
 
-    if (paymentAttempts >= maxPaymentAttempts) {
+    if (paymentAttempts >= env.maxRetryPaymentAttempts) {
       await sendError(interaction, {
         ...defaultMessages.retryLimit,
         ...messages?.retryLimit,

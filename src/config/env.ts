@@ -46,4 +46,5 @@ export const env = {
   guildId: getRequiredEnv("GUILD_ID"),
   minimumOrderSubTotal: getNumberEnv("MINIMUM_ORDER_SUBTOTAL", 20),
   maxOrderSubTotal: getNumberEnv("MAX_ORDER_SUBTOTAL", 25),
+  maxRetryPaymentAttempts: getNumberEnv("MAX_RETRY_PAYMENT_ATTEMPTS", 9),
 } as const;

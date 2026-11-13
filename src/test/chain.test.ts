@@ -12,5 +12,5 @@ connectDatabase()
 const chainId = await getBestChain("most_unused_credit");
 const chains = await getChains();
 
-createAccountsOnChain({ chain: "11", count: 2 });
+// createAccountsOnChain({ chain: "11", count: 2 });
 console.log(chains, chainId);

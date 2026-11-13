@@ -36,7 +36,6 @@ import { Card } from "../../models/card.model.js";
 import { decrypt } from "../../utils/encryption.js";
 import {
   EXCLUDED_CHAINS,
-  maxPaymentAttempts,
 } from "../../constants/constant.js";
 import { getDiscountPercentage } from "../../services/discount.service.js";
 import { sendOrderExpired } from "../../ui/order/sendOrderExpired.js";
@@ -273,7 +272,7 @@ export async function handleOrderModal(interaction: ModalSubmitInteraction) {
         "The initial payment method was declined. Attempting checkout with alternative payment methods.",
         {
           User: interaction.user.id,
-          "Maximum Attempts": String(maxPaymentAttempts),
+          "Maximum Attempts": String(env.maxRetryPaymentAttempts),
         },
       );
     }

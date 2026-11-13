@@ -26,7 +26,6 @@ import { Card } from "../../models/card.model.js";
 import { sendLoading } from "../../ui/utils/sendLoading.js";
 import {
   ADMIN_USERID,
-  maxPaymentAttempts,
   minChainAccountCount,
 } from "../../constants/constant.js";
 import { getBestChain } from "../../utils/chain.js";
@@ -345,7 +344,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           {
             User: interaction.user.id,
             "Checkout ID": checkoutId,
-            "Maximum Attempts": String(maxPaymentAttempts),
+            "Maximum Attempts": String(env.maxRetryPaymentAttempts),
           },
         );
 
@@ -357,13 +356,13 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     while (
       result.code === "PAYMENT_ERROR" &&
-      paymentAttempts < maxPaymentAttempts
+      paymentAttempts < env.maxRetryPaymentAttempts
     ) {
       paymentAttempts++;
 
       await sendLoading(interaction, {
         title: "Payment Confirmation Failed",
-        description: `Payment confirmation was declined. Checking transaction status.\n\nAttempt: ${paymentAttempts}/${maxPaymentAttempts}`,
+        description: `Payment confirmation was declined. Checking transaction status.\n\nAttempt: ${paymentAttempts}/${env.maxRetryPaymentAttempts}`,
       });
 
       const confirmFailed = result.code === "PAYMENT_ERROR";
@@ -549,7 +548,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
       await sendLoading(interaction, {
         title: "Checking Checkout Status",
-        description: `Checkout recovery check completed. Verifying the latest transaction status.\n\nAttempt: ${paymentAttempts}/${maxPaymentAttempts}`,
+        description: `Checkout recovery check completed. Verifying the latest transaction status.\n\nAttempt: ${paymentAttempts}/${env.maxRetryPaymentAttempts}`,
       });
 
       if (!checkout.ok) {
@@ -583,7 +582,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     if (
       result.code === "PAYMENT_ERROR" &&
-      paymentAttempts >= maxPaymentAttempts
+      paymentAttempts >= env.maxRetryPaymentAttempts
     ) {
       await logError(
         interaction.client,
@@ -593,7 +592,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           User: discordUserId,
           "Checkout ID": checkoutId,
           "Failed Attempts": String(paymentAttempts),
-          "Maximum Attempts": String(maxPaymentAttempts),
+          "Maximum Attempts": String(env.maxRetryPaymentAttempts),
         },
       );
 
