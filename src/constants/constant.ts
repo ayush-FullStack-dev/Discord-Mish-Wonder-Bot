@@ -1,5 +1,3 @@
-import { env } from "../config/env.js";
-
 export const ADMIN_USERID = [
   "1525807833277268060",
   "1540375420464009326",
