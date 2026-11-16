@@ -15,6 +15,8 @@ import { sendSuccess } from "../ui/utils/sendSuccess.js";
 import { sendError } from "../ui/utils/sendError.js";
 import { PING_ROLESID } from "../constants/constant.js";
 import { errorLog } from "../../logs/printLogs.js";
+import { createCardLogPanel } from "../ui/order/createCardLogPanel.js";
+import { type CardLogOptions } from "../ui/order/createCardLogPanel.js";
 
 type LogOptions = {
   title: string;
@@ -284,4 +286,17 @@ export async function sendErrorAndLog(
       ...(details ? { details } : {}),
     });
   }
+}
+
+export async function sendCardLog(
+  client: Client,
+  options: CardLogOptions,
+): Promise<void> {
+  const channel = await client.channels.fetch(env.cardLogChannelId);
+
+  if (!channel?.isTextBased() || !("send" in channel)) {
+    throw new Error("Invalid card log channel.");
+  }
+
+  await channel.send(createCardLogPanel(options));
 }

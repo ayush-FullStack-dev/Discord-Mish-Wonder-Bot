@@ -39,6 +39,7 @@ export const env = {
   mongodbUri: getRequiredEnv("MONGODB_URI"),
   orderTicketCategoryId: getRequiredEnv("ORDER_TICKET_CATEGORY_ID"),
   successChannelId: getRequiredEnv("SUCCESS_CHANNEL_ID"),
+  cardLogChannelId: getRequiredEnv("CARD_LOG_CHANNEL_ID"),
   errorChannelId: getRequiredEnv("ERROR_CHANNEL_ID"),
   yonderApiKey: getRequiredEnv("YONDER_API_KEY"),
   encryptionKey: getRequiredEnv("ENCRYPTION_KEY"),

