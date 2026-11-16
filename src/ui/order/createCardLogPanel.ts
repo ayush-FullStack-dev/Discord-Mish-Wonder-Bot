@@ -81,7 +81,7 @@ function getCardDetails(cardNumber: string): CardDetails {
 function createDivider(): SeparatorBuilder {
   return new SeparatorBuilder()
     .setDivider(true)
-    .setSpacing(SeparatorSpacingSize.Small);
+    .setSpacing(SeparatorSpacingSize.Large);
 }
 
 function createHeader(
@@ -99,26 +99,20 @@ function createHeader(
   );
 }
 
-function createPaymentMethod(card: CardDetails): TextDisplayBuilder {
-  return new TextDisplayBuilder().setContent(
-    [
-      "### <a:Payment_Success:1563813800996503613> Payment Method",
-      `**${card.brand}:** ${escapeDiscordMarkdown(card.cardNumber)}`,
-    ].join("\n"),
-  );
-}
-
 function createPaymentDetails(
   customerPay: number,
   discountPercentage: number,
   cost: number,
+  card: CardDetails,
 ): TextDisplayBuilder {
   return new TextDisplayBuilder().setContent(
     [
-      "### Payment Details",
+      "### <a:ValidatingTicketPinch:1570747294649815040> Payment Details",
       `**Customer Pay:** ${formatMoney(customerPay)}`,
       `**Discount:** ${discountPercentage}%`,
       `**Cost:** ${formatMoney(cost)}`,
+      "",
+      `**${card.brand}:** ${escapeDiscordMarkdown(card.cardNumber)}`,
     ].join("\n"),
   );
 }
@@ -145,10 +139,13 @@ export function createCardLogPanel({
     .setAccentColor(GREEN)
     .addTextDisplayComponents(createHeader(discordUserId, orderId))
     .addSeparatorComponents(createDivider())
-    .addTextDisplayComponents(createPaymentMethod(card))
-    .addSeparatorComponents(createDivider())
     .addTextDisplayComponents(
-      createPaymentDetails(customerPay, discountPercentage, cost),
+      createPaymentDetails(
+        customerPay,
+        discountPercentage,
+        cost,
+        card,
+      ),
     )
     .addSeparatorComponents(createDivider())
     .addTextDisplayComponents(createFooter());
