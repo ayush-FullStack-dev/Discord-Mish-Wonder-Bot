@@ -729,7 +729,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
 
       await sendCardLog(interaction.client, {
         discordUserId,
-        orderId: order.orderId!,
+        orderId: order.id!,
         cardNumber: decryptedCardNumber,
         customerPay: order.total,
         discountPercentage: order.discountPercentage,
