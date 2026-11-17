@@ -190,13 +190,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       order.confirming = true;
       claimedOrderId = order._id;
       discordUserId = order.discordUserId;
-      confirmationLog("confirmation.claim", {
-        localOrderId: claimedOrderId,
-        checkoutId: order.checkoutId,
-        providerOrderId: order.orderId,
-        status: order.status,
-        confirming: true,
-      });
     }
 
     if (
