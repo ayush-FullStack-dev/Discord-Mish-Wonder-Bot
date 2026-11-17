@@ -13,7 +13,7 @@ import { startReconcileLockedCardsJob } from "./jobs/reconcileLockedCards.job.js
 import { accountProvisioning } from "./jobs/accountProvisioning.cron.js";
 import { startReconcileOrdersJob } from "./jobs/reconcileOrders.job.js";
 
-const client = new Client({
+export const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
 

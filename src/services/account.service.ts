@@ -1,6 +1,8 @@
 import axios from "axios";
 import { env } from "../config/env.js";
 import { errorLog, success } from "../../logs/printLogs.js";
+import { client } from "../index.js";
+import { logError } from "../utils/logger.js";
 
 const api = axios.create({
   baseURL: env.yonderApiBaseUrl,
@@ -95,8 +97,10 @@ export async function createAccountsOnChain({
       throw new Error("Failed to create account. Please try again later.");
     }
 
+    let accountStatus = account;
+
     if (account.state === "queued") {
-      let accountStatus = await getJobStatus(account.job);
+      accountStatus = await getJobStatus(account.job);
 
       while (!accountStatus.done) {
         if (!accountStatus.ok) {
@@ -104,22 +108,39 @@ export async function createAccountsOnChain({
         }
 
         await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
-        accountStatus = await getJobStatus(account.job);
-      }
 
-      if (!accountStatus.ok) {
-        throw new Error("Account creation job failed.");
+        accountStatus = await getJobStatus(account.job);
       }
     }
 
-    success(`Successfully created ${count} accounts on chain ${chain}.`);
+    if (!accountStatus.ok) {
+      throw new Error("Account creation job failed.");
+    }
+
+    if (accountStatus.result?.failures?.length) {
+      const errorMessage = accountStatus.result.failures.join("\n");
+
+      await logError(client, "Account Creation Failed", errorMessage, {
+        Chain: chain,
+        Requested: String(count),
+      });
+
+      throw new Error(errorMessage);
+    }
+
+    const result = accountStatus.result;
+
+    success(`Successfully created ${result.made} accounts on chain ${chain}.`);
+
     return {
       ok: true,
       chain,
-      count,
+      count: result.made,
+      accounts: result.accounts,
     };
   } catch (error) {
     errorLog("Account creation failed:", error);
+
     return {
       ok: false,
       error: error instanceof Error ? error.message : "Unknown error",
