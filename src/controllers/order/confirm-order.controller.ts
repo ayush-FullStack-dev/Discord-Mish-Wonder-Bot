@@ -677,6 +677,8 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           : "Successfully Deducted",
     });
 
+    await updateOrderChannel(interaction, `✅-${channelName}`);
+    
     const panel = createConfirmedOrderPanel({
       order: { ...data, total: validatedCustomerTotal },
     });
@@ -687,8 +689,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         flags: MessageFlags.IsComponentsV2,
       }),
     );
-
-    await updateOrderChannel(interaction, `✅-${channelName}`);
 
     try {
       await UserChain.findOneAndUpdate(
