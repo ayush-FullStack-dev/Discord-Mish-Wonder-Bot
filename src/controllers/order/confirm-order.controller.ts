@@ -678,7 +678,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     });
 
     await updateOrderChannel(interaction, `✅-${channelName}`);
-    
+
     const panel = createConfirmedOrderPanel({
       order: { ...data, total: validatedCustomerTotal },
     });
@@ -739,6 +739,12 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
           ? error
           : "We couldn't complete your request. Please try again in a moment.";
 
+    const userFriendlyMessage = errorMessage.includes(
+      "No checkout with that id",
+    )
+      ? "Something went wrong while processing your checkout. No payment has been made.\n\nPlease click **Confirm Again** to try again and complete your order."
+      : errorMessage;
+
     await logError(interaction.client, "Order Confirmation Error", error, {
       User: interaction.user.id,
     });
@@ -746,10 +752,11 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     errorLog("Failed to confirm order:", error);
 
     await updateOrderChannel(interaction, `⚠️-${channelName}`);
+
     await sendError(interaction, {
       title: "Something went wrong",
-      description: errorMessage,
-      footer: "If the issue persists, please contact support.",
+      description: userFriendlyMessage,
+      footer: "Please click Confirm Again to try once more.",
     });
   } finally {
     if (claimedOrderId) {
