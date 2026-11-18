@@ -688,11 +688,7 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       }),
     );
 
-    const channel = interaction.channel;
-
-    if (channel?.type === ChannelType.GuildText) {
-      await updateOrderChannel(interaction, `✅-${channelName}`);
-    }
+    await updateOrderChannel(interaction, `✅-${channelName}`);
 
     try {
       await UserChain.findOneAndUpdate(
@@ -728,7 +724,6 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
         discountPercentage: order.discountPercentage,
         cost: order.cost,
       });
-      
     } catch (error) {
       errorLog("Failed to send card log:", error);
     }
@@ -737,6 +732,13 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
       handleCreateAccount(interaction, order?.chain);
     }, 5_000);
   } catch (error) {
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : "We couldn't complete your request. Please try again in a moment.";
+
     await logError(interaction.client, "Order Confirmation Error", error, {
       User: interaction.user.id,
     });
@@ -744,13 +746,11 @@ export async function handleConfirmOrder(interaction: ButtonInteraction) {
     errorLog("Failed to confirm order:", error);
 
     await updateOrderChannel(interaction, `⚠️-${channelName}`);
-    await handleInteractionError(
-      interaction,
-      error,
-      providerConfirmed
-        ? "Order confirmed; local reconciliation required"
-        : "Confirmation interrupted; contact support before retrying",
-    );
+    await sendError(interaction, {
+      title: "Something went wrong",
+      description: errorMessage,
+      footer: "If the issue persists, please contact support.",
+    });
   } finally {
     if (claimedOrderId) {
       await releaseRecoverableConfirmation(
