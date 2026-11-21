@@ -38,7 +38,8 @@ export function accountProvisioning() {
           (chainInfo: Ichain) =>
             !chainInfo.ready ||
             chainInfo.accounts < minChainAccountCount ||
-            chainInfo.unused < minChainAccountCount,
+            chainInfo.unused < minChainAccountCount ||
+            chainInfo.unused < chainInfo.accounts,
         )
         .map((chainInfo: Ichain) => ({
           id: chainInfo.chain,
@@ -59,7 +60,7 @@ export function accountProvisioning() {
           0,
           minChainAccountCount - chainInfo.accounts,
           minChainAccountCount - chainInfo.unused,
-
+          chainInfo.accounts - chainInfo.unused,
         );
 
         if (!missingAccounts) continue;

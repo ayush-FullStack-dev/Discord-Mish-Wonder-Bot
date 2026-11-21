@@ -9,8 +9,8 @@ connectDatabase()
   .then(() => console.log("Connected to database"))
   .catch((err) => console.error("Database connection error:", err));
 
-const chainId = await getBestChain("most_unused_credit");
+const chainId = await getBestChain("most_unused_credit") || "11"
 const chains = await getChains();
 
-// createAccountsOnChain({ chain: "11", count: 1 });
+// createAccountsOnChain({ chain: chainId, count: 1 });
 console.log(chains, chainId);
